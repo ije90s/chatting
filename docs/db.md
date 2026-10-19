@@ -19,7 +19,8 @@ MariaDB 기반 테이블 설계이다. API 명세는 [api.md](./api.md)를 참�
 
 - 엔진 `InnoDB`, 문자셋 `utf8mb4`, collation `utf8mb4_unicode_ci`
 - 시각은 `DATETIME(3)`, **UTC**로 저장한다. DB 연결의 time zone을 `+00:00`으로 고정한다.
-- 세션 ID는 UUID(`CHAR(36)`)를 사용한다. 이벤트 ID는 `BIGINT AUTO_INCREMENT`를 사용한다.
+- 시각 컬럼에는 DB 기본값(`CURRENT_TIMESTAMP`)을 쓰지 않는다. 애플리케이션이 이벤트의 `received_at`을 넣어 이벤트와 프로젝션의 시각을 일치시킨다.
+- 세션 ID는 UUID v7(`CHAR(36)`)을 사용한다. 시간순으로 증가해 InnoDB 클러스터드 인덱스에 순서대로 들어간다. 이벤트 ID는 `BIGINT AUTO_INCREMENT`를 사용한다.
 - `JSON` 타입은 MariaDB에서 `LONGTEXT`의 별칭이다. 형식 검증은 `CHECK (JSON_VALID(...))`와 애플리케이션 양쪽에서 한다.
 - ORM은 TypeORM을 사용한다. 엔티티는 도메인 모듈별 `entities/*.entity.ts`에 두고 `TypeOrmModule.forFeature()`로 등록한다. 마이그레이션은 `src/database/migrations/`에 둔다. `synchronize`는 끄고 스키마는 마이그레이션으로만 바꾼다.
 
@@ -148,7 +149,7 @@ CREATE TABLE snapshots (
 ## 4. 미결 사항
 
 - [x] ORM 선택 및 마이그레이션 방식 → TypeORM, 엔티티 변경 후 `migration:generate`로 생성하고 `migration:run`으로 적용
-- [ ] 세션 ID 형식 (UUID v4 / v7, `CHAR(36)` / `BINARY(16)`)
+- [x] 세션 ID 형식 → UUID v7, `CHAR(36)`. 삽입 위치가 순차적이고 조회 시 읽기 쉽다. `BINARY(16)`은 변환 비용 대비 이득이 작아 쓰지 않는다.
 - [x] 사용자 테이블 도입 여부 → 도입하지 않는다. 인증/인가는 요구사항 범위 밖이므로 `user_id` 문자열만 저장하고 FK를 걸지 않는다.
 - [x] 스냅샷 기록 시점 → 상태 변경 시 + 100개마다 (3장)
 - [ ] 메시지 보관 기간, 삭제/수정 메시지 지원 여부

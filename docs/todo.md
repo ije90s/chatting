@@ -11,7 +11,7 @@
 
 ## 2. session (엔티티)
 
-- [ ] `sessions`, `participants` 엔티티 + 마이그레이션
+- [x] `sessions`, `participants` 엔티티 + 마이그레이션
 
 ## 3. event (이벤트 저장)
 
