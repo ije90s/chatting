@@ -15,9 +15,9 @@
 
 ## 3. event (이벤트 저장)
 
-- [ ] `messages` 엔티티 + 마이그레이션
-- [ ] reducer: `reduce(state, event) → state` 순수 함수, 상태 전이 검증 — 유닛 테스트
-- [ ] `EventService` 단일 쓰기 경로: 세션 잠금 → 중복 확인 → 상태 검증 → seq 부여 → 이벤트·프로젝션 저장 (한 트랜잭션) — 유닛 테스트 (중복 처리, seq 부여)
+- [x] `messages` 엔티티 + 마이그레이션
+- [x] reducer: `reduce(state, event) → state` 순수 함수, 상태 전이 검증 — 유닛 테스트
+- [x] `EventService` 단일 쓰기 경로: 세션 잠금 → 중복 확인 → 상태 검증 → seq 부여 → 이벤트·프로젝션 저장 (한 트랜잭션) — 유닛 테스트 (중복 처리, seq 부여)
 
 ## 4. projection (스냅샷, 복원)
 
