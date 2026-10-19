@@ -5,7 +5,7 @@
 ## 기술 스택
 
 - TypeScript, NestJS
-- MariaDB (Docker로 실행)
+- MariaDB (Docker로 실행), TypeORM
 - socket.io
 - OpenAPI (`@nestjs/swagger`)
 
@@ -21,10 +21,12 @@
 ```bash
 cp .env.example .env     # 최초 1회
 docker compose up -d     # MariaDB 실행 (UTC, utf8mb4)
+npm run migration:run    # 마이그레이션 적용
 npm run start:dev        # 개발 서버 (http://localhost:3000)
 npm run lint             # ESLint
 npm run test             # 단위 테스트
 npm run test:e2e         # e2e 테스트
+npm run migration:generate -- src/database/migrations/<Name>   # 엔티티 변경 후 마이그레이션 생성
 ```
 
 Swagger UI는 `/docs`, OpenAPI JSON은 `/docs-json`에서 확인한다.
@@ -66,6 +68,8 @@ src/
 ## 코딩 규칙
 
 - 시각은 UTC로 다루고 DB에는 `DATETIME(3)`으로 저장한다.
+- 엔티티는 각 도메인 모듈의 `entities/*.entity.ts`에 두고 `TypeOrmModule.forFeature()`로 등록한다(`autoLoadEntities`).
+- 스키마는 TypeORM 마이그레이션으로만 바꾼다(`synchronize: false`). 엔티티를 바꾸면 마이그레이션을 생성하고 `docs/db.md`도 함께 고친다.
 - 응답은 성공 `{ success: true, data }`, 실패 `{ success: false, code, message }`로 통일한다. 에러 코드는 `docs/api.md`의 목록을 따른다.
 - 모든 REST 엔드포인트에 OpenAPI 데코레이터로 요청/응답 스키마를 명시한다.
 - reducer, 중복 처리, seq 부여, 스냅샷 기록 조건, 타임라인 복원은 반드시 테스트를 작성한다.

@@ -10,6 +10,7 @@
 npm install
 cp .env.example .env     # 최초 1회
 docker compose up -d     # MariaDB 실행
+npm run migration:run    # 테이블 생성 (마이그레이션 적용)
 npm run start:dev        # 개발 서버 (http://localhost:3000)
 ```
 
@@ -25,7 +26,9 @@ npm run start:dev        # 개발 서버 (http://localhost:3000)
 ```bash
 npm run lint             # ESLint
 npm run test             # 단위 테스트
-npm run test:e2e         # e2e 테스트
+npm run test:e2e         # e2e 테스트 (MariaDB 실행 필요)
+npm run migration:generate -- src/database/migrations/<Name>   # 엔티티 변경 후 마이그레이션 생성
+npm run migration:revert # 마지막 마이그레이션 되돌리기
 docker compose down      # MariaDB 중지 (데이터 유지)
 docker compose down -v   # MariaDB 중지 + 데이터 삭제
 ```
@@ -37,6 +40,7 @@ docker compose down -v   # MariaDB 중지 + 데이터 삭제
 | 언어 / 프레임워크 | TypeScript, NestJS 11 |
 | 런타임 | Node.js 20 이상 |
 | DB | MariaDB 11.4 (Docker), InnoDB, utf8mb4, UTC |
+| ORM | TypeORM (스키마는 마이그레이션으로 관리, `synchronize` 미사용) |
 | 실시간 | socket.io (namespace `/chat`) |
 | API 문서 | OpenAPI (`@nestjs/swagger`) |
 
