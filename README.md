@@ -1,98 +1,93 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# chatting
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+1:1 참여자 간 실시간 채팅 서비스. 세션 단위로 이벤트를 기록하고, 이벤트를 다시 적용해 특정 시점의 세션 상태를 복원한다.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+상세 설계는 [docs/api.md](docs/api.md)(API), [docs/db.md](docs/db.md)(테이블)를 참고한다.
 
-## Description
-
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
-
-## Project setup
+## 실행 방법
 
 ```bash
-$ npm install
+npm install
+cp .env.example .env     # 최초 1회
+docker compose up -d     # MariaDB 실행
+npm run start:dev        # 개발 서버 (http://localhost:3000)
 ```
 
-## Compile and run the project
+| 경로 | 내용 |
+|---|---|
+| `http://localhost:3000/docs` | Swagger UI |
+| `http://localhost:3000/docs-json` | OpenAPI JSON |
+
+요청 헤더 `X-User-Id`로 사용자를 식별한다(임시). Swagger UI에서는 Authorize에 값을 넣는다.
+
+**기타 명령어**
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+npm run lint             # ESLint
+npm run test             # 단위 테스트
+npm run test:e2e         # e2e 테스트
+docker compose down      # MariaDB 중지 (데이터 유지)
+docker compose down -v   # MariaDB 중지 + 데이터 삭제
 ```
 
-## Run tests
+## 환경 구성
 
-```bash
-# unit tests
-$ npm run test
+| 구성 | 내용 |
+|---|---|
+| 언어 / 프레임워크 | TypeScript, NestJS 11 |
+| 런타임 | Node.js 20 이상 |
+| DB | MariaDB 11.4 (Docker), InnoDB, utf8mb4, UTC |
+| 실시간 | socket.io (namespace `/chat`) |
+| API 문서 | OpenAPI (`@nestjs/swagger`) |
 
-# e2e tests
-$ npm run test:e2e
+**환경 변수** (`.env`)
 
-# test coverage
-$ npm run test:cov
-```
+| 변수 | 기본값 | 설명 |
+|---|---|---|
+| `PORT` | `3000` | 서버 포트 |
+| `DB_HOST` | `localhost` | DB 호스트 |
+| `DB_PORT` | `3306` | DB 포트 |
+| `DB_NAME` | `chatting` | DB 이름 |
+| `DB_USER` | `chatting` | DB 사용자 |
+| `DB_PASSWORD` | `chatting` | DB 비밀번호 |
+| `DB_ROOT_PASSWORD` | `root` | MariaDB root 비밀번호 (컨테이너 초기화용) |
 
-## Deployment
+## 주요 의사결정 요약
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+### 이벤트 기록과 상태 복원
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+- 모든 변화(생성, 참여, 나가기, 메시지, presence, 종료)를 `messages` 테이블에 이벤트로 append-only 저장한다. 채팅 메시지와 시스템 메시지를 `type`으로 구분한다.
+- `sessions`, `participants`는 이벤트를 적용한 현재 상태(프로젝션)다. 이벤트와 프로젝션은 한 트랜잭션에서 저장한다.
+- 상태 전이는 순수 함수 reducer(`reduce(state, event) → state`) 하나로 처리한다. 실시간 처리, 프로젝션 갱신, 타임라인 복원이 같은 reducer를 쓴다.
+- 특정 시점 복원(`GET /sessions/{id}/timeline?at=`)은 가장 가까운 스냅샷에서 이후 이벤트를 다시 적용한다. 스냅샷은 상태 변경(join/leave/end) 시와 100개 이벤트마다 같은 트랜잭션에서 자동 기록한다.
 
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
-```
+### 중복 이벤트 방지 (제약 2.1)
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+- 클라이언트가 이벤트마다 UUID(`clientEventId`)를 한 번 만들고, 재전송할 때 같은 값을 보낸다. 서버가 발급하지 않는 이유는 "저장됐지만 응답이 유실된" 재전송을 첫 요청과 연결하려면 키가 요청 전에 있어야 하기 때문이다.
+- 세션 행을 잠근 뒤 중복을 확인하고, `(session_id, client_event_id)` UNIQUE를 마지막 안전장치로 둔다.
+- 중복이면 새로 저장하지 않고 `200`으로 기존 이벤트를 돌려주며, 다시 broadcast하지 않는다.
+- 중복 확인을 상태 검증보다 먼저 한다. 이미 저장된 메시지의 재전송은 그 사이 세션이 종료됐어도 성공으로 응답한다.
+- join, end는 상태 기준으로 멱등하다(이미 참여/종료면 `200`).
 
-## Resources
+### 순서 처리 기준 (제약 2.2)
 
-Check out a few resources that may come in handy when working with NestJS:
+- 정식 순서는 서버가 세션별로 부여하는 `seq`다. 세션 행을 `SELECT ... FOR UPDATE`로 잠근 뒤 `last_seq + 1`을 부여해 동시 요청을 직렬화한다.
+- 클라이언트 시각(`clientSentAt`)은 기기마다 달라 정렬과 복원에 쓰지 않는다.
+- 늦게 도착한 이벤트는 도착 순서대로 seq를 받으며, 과거 순서에 끼워 넣지 않는다.
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+### 쓰기 경로와 실시간 전달
 
-## Support
+- 메시지, join, leave, end 등 쓰기는 REST로만 받는다. socket은 커밋된 이벤트를 전달하는 수신 채널이다.
+- 예외는 presence다. socket 구독 시 `PRESENCE_ONLINE`, 해당 세션 연결이 모두 끊기면 `PRESENCE_OFFLINE`을 저장한다.
+- 모든 이벤트 저장은 `EventService` 한 곳에서 하고, broadcast는 커밋 후에 한다.
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+### 세션 규칙
 
-## Stay in touch
+- 상태: `JOIN`(진행중) → `LEAVE`(중단, 참여자가 나감) → `END`(완료). `JOIN`에서 바로 `END`도 가능하다.
+- 생성자는 세션 생성 시 자동으로 참여한다. 참여자는 최대 2명이며, 나간 사용자는 다시 참여할 수 없다.
+- 종료는 참여 중인 사용자만 할 수 있다.
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+### 범위에서 제외한 것
 
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+- 인증/인가: `X-User-Id` 헤더로 임시 식별하며, 사용자 테이블을 두지 않는다.
+- 세션 생성 요청의 중복 방지, 이벤트 조회 API, 다중 인스턴스 presence 관리는 이후 검토한다.
