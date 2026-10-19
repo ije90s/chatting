@@ -3,6 +3,7 @@ import { DataSource, EntityManager } from 'typeorm';
 import { v7 as uuidv7 } from 'uuid';
 import { AppException } from '../common/errors/app.exception';
 import { ErrorCode } from '../common/errors/error-code';
+import { shouldSnapshot } from '../projection/snapshot-policy';
 import { Participant } from '../session/entities/participant.entity';
 import { Session } from '../session/entities/session.entity';
 import { SessionStatus } from '../session/session-status';
@@ -38,7 +39,7 @@ export interface CreateSessionInput {
 
 type NewEvent = Omit<Message, 'id' | 'session'>;
 
-// 이벤트 저장의 단일 경로. 이벤트와 프로젝션(sessions, participants)을 한 트랜잭션에서 저장한다.
+// 이벤트 저장의 단일 경로. 이벤트와 프로젝션(sessions, participants, snapshots)을 한 트랜잭션에서 저장한다.
 @Injectable()
 export class EventService {
   constructor(
@@ -61,10 +62,13 @@ export class EventService {
         actorId: input.actorId,
       }),
     ];
-    const state = events.reduce(
-      (current, event) => reduce(current, this.toReducible(event)),
-      initialSessionState,
-    );
+    // 이벤트별 적용 결과. 스냅샷은 이벤트마다 그 시점의 상태로 기록한다.
+    const states: SessionState[] = [];
+    let state = initialSessionState;
+    for (const event of events) {
+      state = reduce(state, this.toReducible(event));
+      states.push(state);
+    }
 
     return this.dataSource.transaction(async (manager) => {
       await this.eventRepository.insertSession(manager, {
@@ -77,8 +81,9 @@ export class EventService {
       } as Session);
 
       const saved: Message[] = [];
-      for (const event of events) {
+      for (const [i, event] of events.entries()) {
         saved.push(await this.eventRepository.insertEvent(manager, event));
+        await this.saveSnapshot(manager, event, states[i]);
       }
       await this.saveParticipant(manager, state, events[1]);
       return saved.map((event) => EventDto.from(event));
@@ -134,6 +139,7 @@ export class EventService {
         ...(event.type === EventType.SESSION_ENDED && { endedAt: receivedAt }),
       });
       await this.saveParticipant(manager, next, event);
+      await this.saveSnapshot(manager, event, next);
       return { event: EventDto.from(saved), created: true };
     });
   }
@@ -223,6 +229,22 @@ export class EventService {
       ...(isPresence && { presenceAt: event.receivedAt }),
     };
     await this.eventRepository.upsertParticipant(manager, row);
+  }
+
+  private async saveSnapshot(
+    manager: EntityManager,
+    event: NewEvent,
+    state: SessionState,
+  ): Promise<void> {
+    if (!shouldSnapshot(event)) {
+      return;
+    }
+    await this.eventRepository.insertSnapshot(manager, {
+      sessionId: event.sessionId,
+      seq: event.seq,
+      state,
+      createdAt: event.receivedAt,
+    });
   }
 
   private toSessionProjection(

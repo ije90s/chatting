@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
+import { Snapshot } from '../projection/entities/snapshot.entity';
 import { Participant } from '../session/entities/participant.entity';
 import { Session } from '../session/entities/session.entity';
 import { Message } from './entities/message.entity';
@@ -73,5 +74,9 @@ export class EventRepository {
       message as QueryDeepPartialEntity<Message>,
     );
     return { ...message, id: Number(result.identifiers[0].id) } as Message;
+  }
+
+  insertSnapshot(manager: EntityManager, snapshot: Omit<Snapshot, 'session'>) {
+    return manager.insert(Snapshot, snapshot);
   }
 }

@@ -1,6 +1,7 @@
-import { DataSource } from 'typeorm';
+import { DataSource, DataSourceOptions } from 'typeorm';
 import { buildDataSourceOptions } from '../src/database/typeorm.config';
 import { Message } from '../src/event/entities/message.entity';
+import { Snapshot } from '../src/projection/entities/snapshot.entity';
 import { EventType } from '../src/event/event-type';
 import { EventRepository } from '../src/event/event.repository';
 import { EventService } from '../src/event/event.service';
@@ -18,12 +19,13 @@ describe('EventService (MariaDB)', () => {
       ...buildDataSourceOptions(process.env),
       // 동시 요청 테스트를 위해 커넥션을 넉넉히 둔다.
       poolSize: 30,
-    });
+    } as DataSourceOptions);
     await dataSource.initialize();
     service = new EventService(dataSource, new EventRepository());
   });
 
   beforeEach(async () => {
+    await dataSource.query('DELETE FROM snapshots');
     await dataSource.query('DELETE FROM messages');
     await dataSource.query('DELETE FROM participants');
     await dataSource.query('DELETE FROM sessions');
@@ -219,5 +221,75 @@ describe('EventService (MariaDB)', () => {
     expect(await dataSource.getRepository(Message).countBy({ sessionId })).toBe(
       3,
     );
+  });
+
+  async function snapshotsOf(sessionId: string) {
+    return dataSource
+      .getRepository(Snapshot)
+      .find({ where: { sessionId }, order: { seq: 'ASC' } });
+  }
+
+  it('상태 변경 이벤트를 저장하면 같은 트랜잭션에서 그 seq의 상태를 스냅샷으로 남긴다', async () => {
+    const sessionId = await createWithTwo();
+    await service.append(sessionId, sendMessage('user-a', '메시지'));
+    await service.append(sessionId, {
+      type: EventType.PRESENCE_ONLINE,
+      actorId: 'user-a',
+    });
+    await service.append(sessionId, {
+      type: EventType.PARTICIPANT_LEFT,
+      actorId: 'user-b',
+      clientEventId: uuid(),
+    });
+    await service.append(sessionId, {
+      type: EventType.SESSION_ENDED,
+      actorId: 'user-a',
+    });
+
+    const snapshots = await snapshotsOf(sessionId);
+    // 생성자 참여(2), 두 번째 참여(3), 나가기(6), 종료(7). 생성(1), 메시지(4), presence(5)는 없음
+    expect(snapshots.map((s) => s.seq)).toEqual([2, 3, 6, 7]);
+
+    const events = await dataSource
+      .getRepository(Message)
+      .find({ where: { sessionId }, order: { seq: 'ASC' } });
+    for (const snapshot of snapshots) {
+      const upTo = events.filter((e) => e.seq <= snapshot.seq);
+      expect(snapshot.state).toEqual(
+        replay(
+          upTo.map((e) => ({ ...e, receivedAt: e.receivedAt.toISOString() })),
+        ),
+      );
+      expect(snapshot.createdAt).toEqual(upTo[upTo.length - 1].receivedAt);
+    }
+  });
+
+  it('seq가 100의 배수인 이벤트는 타입과 무관하게 스냅샷을 남긴다', async () => {
+    const sessionId = await createWithTwo();
+    // 3까지 저장됨. 메시지 97개로 seq 100을 채운다.
+    for (let i = 0; i < 97; i++) {
+      await service.append(sessionId, sendMessage('user-a', `메시지 ${i}`));
+    }
+
+    const snapshots = await snapshotsOf(sessionId);
+    expect(snapshots.map((s) => s.seq)).toEqual([2, 3, 100]);
+    expect(snapshots[2].state.messageCount).toBe(97);
+    expect(snapshots[2].state.lastMessage?.seq).toBe(100);
+  });
+
+  it('중복 요청과 실패한 요청은 스냅샷을 남기지 않는다', async () => {
+    const sessionId = await createWithTwo();
+    await service.append(sessionId, {
+      type: EventType.PARTICIPANT_JOINED,
+      actorId: 'user-b',
+    });
+    await expect(
+      service.append(sessionId, {
+        type: EventType.PARTICIPANT_JOINED,
+        actorId: 'user-c',
+      }),
+    ).rejects.toEqual(expect.objectContaining({ code: 'SESSION_FULL' }));
+
+    expect((await snapshotsOf(sessionId)).map((s) => s.seq)).toEqual([2, 3]);
   });
 });

@@ -74,6 +74,7 @@ describe('EventService', () => {
       insertSession: jest.fn(),
       updateSession: jest.fn(),
       upsertParticipant: jest.fn(),
+      insertSnapshot: jest.fn(),
       insertEvent: jest.fn((_m, event: Omit<Message, 'id' | 'session'>) =>
         Promise.resolve({ ...event, id: 200 } as Message),
       ),
@@ -362,6 +363,90 @@ describe('EventService', () => {
         leftAt: null,
         presence: 'OFFLINE',
       });
+    });
+  });
+
+  describe('스냅샷 기록', () => {
+    it('상태를 바꾸는 이벤트는 저장한 seq의 reducer 결과를 스냅샷으로 남긴다', async () => {
+      await service.append(SESSION_ID, {
+        type: EventType.PARTICIPANT_LEFT,
+        actorId: 'user-b',
+      });
+
+      expect(repo.insertSnapshot).toHaveBeenCalledWith(manager, {
+        sessionId: SESSION_ID,
+        seq: 4,
+        state: {
+          status: 'LEAVE',
+          participants: [
+            {
+              userId: 'user-a',
+              joinedAt: T0.toISOString(),
+              leftAt: null,
+              presence: 'OFFLINE',
+            },
+            {
+              userId: 'user-b',
+              joinedAt: T0.toISOString(),
+              leftAt: NOW.toISOString(),
+              presence: 'OFFLINE',
+            },
+          ],
+          messageCount: 0,
+          lastMessage: null,
+        },
+        createdAt: NOW,
+      });
+    });
+
+    it('기록 조건에 맞지 않는 이벤트는 스냅샷을 남기지 않는다', async () => {
+      await service.append(SESSION_ID, {
+        type: EventType.MESSAGE_CREATED,
+        actorId: 'user-a',
+        payload: { content: 'x' },
+      });
+      expect(repo.insertSnapshot).not.toHaveBeenCalled();
+    });
+
+    it('seq가 100이 되는 메시지는 스냅샷을 남긴다', async () => {
+      repo.lockSession.mockResolvedValue(session({ lastSeq: 99 }));
+      await service.append(SESSION_ID, {
+        type: EventType.MESSAGE_CREATED,
+        actorId: 'user-a',
+        payload: { content: 'x' },
+      });
+      expect(repo.insertSnapshot).toHaveBeenCalledWith(
+        manager,
+        expect.objectContaining({ seq: 100 }),
+      );
+    });
+
+    it('중복 요청은 스냅샷을 남기지 않는다', async () => {
+      repo.findEventByClientEventId.mockResolvedValue(
+        message({ type: EventType.PARTICIPANT_LEFT, actorId: 'user-b' }),
+      );
+      await service.append(SESSION_ID, {
+        type: EventType.PARTICIPANT_LEFT,
+        actorId: 'user-b',
+        clientEventId: '7a1c2d3e-4b5a-4c6d-8e7f-9a0b1c2d3e4f',
+      });
+      expect(repo.insertSnapshot).not.toHaveBeenCalled();
+    });
+
+    it('세션 생성은 생성자 참여(seq 2)만 스냅샷으로 남긴다', async () => {
+      await service.createSession({ title: '상담', actorId: 'user-a' });
+
+      expect(repo.insertSnapshot).toHaveBeenCalledTimes(1);
+      expect(repo.insertSnapshot).toHaveBeenCalledWith(
+        manager,
+        expect.objectContaining({
+          seq: 2,
+          state: expect.objectContaining({
+            status: 'JOIN',
+            participants: [expect.objectContaining({ userId: 'user-a' })],
+          }) as unknown,
+        }),
+      );
     });
   });
 });
