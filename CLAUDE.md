@@ -13,6 +13,7 @@
 
 - [docs/api.md](docs/api.md): REST API, 응답 형식, 세션 상태와 이벤트
 - [docs/db.md](docs/db.md): 테이블 설계
+- [docs/todo.md](docs/todo.md): 구현 순서 투두. 이 순서대로 작업하고, 끝난 항목은 체크한다.
 
 설계를 바꾸는 작업을 하면 해당 문서도 함께 수정한다.
 
@@ -67,9 +68,12 @@ src/
 
 ## 코딩 규칙
 
+- 도메인별로 모듈 - 컨트롤러 - 서비스 - 레포지토리 계층으로 나눈다. 컨트롤러는 요청 검증과 응답, 서비스는 비즈니스 로직과 트랜잭션, 레포지토리는 DB 접근(쿼리)만 맡는다.
+- 계층 간 데이터 전달은 DTO로 한다. 컨트롤러는 엔티티를 그대로 응답하지 않는다. DB 스키마는 엔티티로 정의하고, 엔티티는 서비스와 레포지토리 사이에서만 사용한다.
+- 도메인 폴더 구조: `<domain>.module.ts`, `<domain>.controller.ts`, `<domain>.service.ts`, `<domain>.repository.ts`, `dto/`, `entities/`
 - 시각은 UTC로 다루고 DB에는 `DATETIME(3)`으로 저장한다.
 - 엔티티는 각 도메인 모듈의 `entities/*.entity.ts`에 두고 `TypeOrmModule.forFeature()`로 등록한다(`autoLoadEntities`).
 - 스키마는 TypeORM 마이그레이션으로만 바꾼다(`synchronize: false`). 엔티티를 바꾸면 마이그레이션을 생성하고 `docs/db.md`도 함께 고친다.
 - 응답은 성공 `{ success: true, data }`, 실패 `{ success: false, code, message }`로 통일한다. 에러 코드는 `docs/api.md`의 목록을 따른다.
 - 모든 REST 엔드포인트에 OpenAPI 데코레이터로 요청/응답 스키마를 명시한다.
-- reducer, 중복 처리, seq 부여, 스냅샷 기록 조건, 타임라인 복원은 반드시 테스트를 작성한다.
+- 핵심 로직은 유닛 테스트로 검증한다. reducer, 중복 처리, seq 부여, 스냅샷 기록 조건, 타임라인 복원은 반드시 테스트를 작성한다.

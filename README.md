@@ -58,6 +58,30 @@ docker compose down -v   # MariaDB 중지 + 데이터 삭제
 
 ## 주요 의사결정 요약
 
+### 애플리케이션 구성
+
+도메인별로 모듈 - 컨트롤러 - 서비스 - 레포지토리 계층으로 나눈다.
+
+| 계층 | 역할 |
+|---|---|
+| Module | 도메인 단위로 컨트롤러, 서비스, 레포지토리를 묶는다. 엔티티는 `TypeOrmModule.forFeature()`로 등록한다. |
+| Controller | HTTP 요청을 받아 요청 DTO로 검증하고, 서비스를 호출해 응답 DTO로 돌려준다. |
+| Service | 비즈니스 로직과 트랜잭션을 처리한다. |
+| Repository | 엔티티로 DB에 접근한다. 쿼리는 이 계층에만 둔다. |
+
+- 계층 간 데이터 전달은 DTO로 한다. 컨트롤러는 엔티티를 그대로 응답하지 않는다.
+- DB 스키마는 엔티티로 정의하고, 엔티티는 서비스와 레포지토리 사이에서만 사용한다.
+
+```
+src/<domain>/
+  <domain>.module.ts
+  <domain>.controller.ts
+  <domain>.service.ts
+  <domain>.repository.ts
+  dto/        요청/응답 DTO
+  entities/   TypeORM 엔티티 (DB 스키마)
+```
+
 ### 이벤트 기록과 상태 복원
 
 - 모든 변화(생성, 참여, 나가기, 메시지, presence, 종료)를 `messages` 테이블에 이벤트로 append-only 저장한다. 채팅 메시지와 시스템 메시지를 `type`으로 구분한다.
