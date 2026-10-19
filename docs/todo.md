@@ -21,7 +21,7 @@
 
 ## 4. projection (스냅샷, 복원)
 
-- [ ] `snapshots` 엔티티 + 마이그레이션
+- [x] `snapshots` 엔티티 + 마이그레이션
 - [ ] `shouldSnapshot(event)` 기록 조건 + `EventService` 트랜잭션에 스냅샷 기록 연결 — 유닛 테스트
 - [ ] 타임라인 복원: 기준 seq 결정 → 스냅샷 로드 → 이후 이벤트 적용 — 유닛 테스트
 

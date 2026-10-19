@@ -5,6 +5,7 @@ import { AppService } from './app.service';
 import { CommonModule } from './common/common.module';
 import { DatabaseModule } from './database/database.module';
 import { EventModule } from './event/event.module';
+import { ProjectionModule } from './projection/projection.module';
 import { SessionModule } from './session/session.module';
 
 @Module({
@@ -13,6 +14,7 @@ import { SessionModule } from './session/session.module';
     DatabaseModule,
     CommonModule,
     EventModule,
+    ProjectionModule,
     SessionModule,
   ],
   controllers: [AppController],
