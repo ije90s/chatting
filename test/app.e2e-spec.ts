@@ -20,7 +20,15 @@ describe('AppController (e2e)', () => {
     return request(app.getHttpServer())
       .get('/')
       .expect(200)
-      .expect('Hello World!');
+      .expect({ success: true, data: 'Hello World!' });
+  });
+
+  it('없는 경로는 공통 에러 형식으로 응답한다', () => {
+    return request(app.getHttpServer()).get('/not-found').expect(404).expect({
+      success: false,
+      code: 'NOT_FOUND',
+      message: '요청한 경로를 찾을 수 없습니다.',
+    });
   });
 
   afterEach(async () => {

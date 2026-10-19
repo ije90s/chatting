@@ -4,10 +4,10 @@
 
 ## 1. common (공통)
 
-- [ ] 요청 검증: `class-validator`, `class-transformer` 추가, 전역 `ValidationPipe`
-- [ ] 응답 형식: 성공 `{ success: true, data }` 인터셉터
-- [ ] 에러 형식: 에러 코드 정의, `{ success: false, code, message }` 예외 필터
-- [ ] 사용자 식별: `X-User-Id` 헤더 검사(없으면 `401`), 사용자 ID 데코레이터
+- [x] 요청 검증: `class-validator`, `class-transformer` 추가, 전역 `ValidationPipe`
+- [x] 응답 형식: 성공 `{ success: true, data }` 인터셉터
+- [x] 에러 형식: 에러 코드 정의, `{ success: false, code, message }` 예외 필터
+- [x] 사용자 식별: `X-User-Id` 헤더 검사(없으면 `401`), 사용자 ID 데코레이터
 
 ## 2. session (엔티티)
 

@@ -23,6 +23,9 @@
 X-User-Id: user-a
 ```
 
+- 앞뒤 공백을 제거한 값을 사용자 ID로 쓴다. 없거나 비어 있으면 `401 UNAUTHORIZED`다.
+- 최대 64자(`participants.user_id` 길이)다. 넘으면 `400 VALIDATION_ERROR`다.
+
 ### 시간 형식
 
 - 모든 시각은 ISO-8601 UTC, 밀리초까지 표기한다. 예: `2026-10-19T06:20:00.123Z`
@@ -56,10 +59,12 @@ X-User-Id: user-a
 | 400 | `VALIDATION_ERROR` | 요청 형식 오류 |
 | 401 | `UNAUTHORIZED` | 사용자 식별 정보 없음 |
 | 403 | `NOT_PARTICIPANT` | 세션 참여자가 아닌 사용자의 요청 |
+| 404 | `NOT_FOUND` | 없는 경로 |
 | 404 | `SESSION_NOT_FOUND` | 세션 없음 |
 | 409 | `SESSION_FULL` | 참여자가 이미 2명 |
 | 409 | `INVALID_SESSION_STATUS` | 현재 세션 상태에서 허용되지 않는 요청 (예: `END` 세션에 메시지) |
 | 409 | `ALREADY_LEFT` | 이미 나간 참여자가 다시 요청 |
+| 500 | `INTERNAL_ERROR` | 서버 내부 오류. 내부 정보는 응답에 넣지 않는다. |
 
 ## 3. 세션 상태와 이벤트
 
