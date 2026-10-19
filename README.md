@@ -26,7 +26,9 @@ npm run start:dev        # 개발 서버 (http://localhost:3000)
 ```bash
 npm run lint             # ESLint
 npm run test             # 단위 테스트
-npm run test:e2e         # e2e 테스트 (MariaDB 실행 필요)
+npm run test:e2e         # e2e 테스트 (MariaDB 실행 필요, 테스트 DB 사용)
+npm run test:int         # 통합 테스트 (MariaDB 실행 필요, 테스트 DB 사용)
+npm run test:cov         # 단위 테스트 커버리지
 npm run migration:generate -- src/database/migrations/<Name>   # 엔티티 변경 후 마이그레이션 생성
 npm run migration:revert # 마지막 마이그레이션 되돌리기
 docker compose down      # MariaDB 중지 (데이터 유지)
