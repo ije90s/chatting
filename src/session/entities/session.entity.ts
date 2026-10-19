@@ -37,6 +37,23 @@ export class Session {
   })
   participantCount: number;
 
+  // reducer 상태의 messageCount, lastMessage를 프로젝션만으로 만들기 위한 값
+  @Column({
+    name: 'message_count',
+    type: 'int',
+    unsigned: true,
+    default: 0,
+  })
+  messageCount: number;
+
+  @Column({
+    name: 'last_message_seq',
+    type: 'bigint',
+    unsigned: true,
+    nullable: true,
+  })
+  lastMessageSeq: number | null;
+
   // 시각은 DB 기본값 대신 이벤트의 receivedAt을 애플리케이션이 넣는다.
   @Column({ name: 'created_at', type: 'datetime', precision: 3 })
   createdAt: Date;

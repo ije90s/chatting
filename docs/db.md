@@ -36,6 +36,8 @@ CREATE TABLE sessions (
   created_by       VARCHAR(64)     NOT NULL,
   last_seq         BIGINT UNSIGNED NOT NULL DEFAULT 0,
   participant_count TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  message_count    INT UNSIGNED    NOT NULL DEFAULT 0,
+  last_message_seq BIGINT UNSIGNED NULL,
   created_at       DATETIME(3)     NOT NULL,
   ended_at         DATETIME(3)     NULL,
   updated_at       DATETIME(3)     NOT NULL,
@@ -50,6 +52,10 @@ CREATE TABLE sessions (
 | `title` | 세션 제목. 목록에 표시한다. `SESSION_CREATED` payload에도 담아 이벤트만으로 복원할 수 있게 한다. |
 | `last_seq` | seq 발급 카운터. 세션 행을 `SELECT ... FOR UPDATE`로 잠근 뒤 `last_seq + 1`을 다음 seq로 쓰고, messages INSERT와 같은 트랜잭션에서 갱신한다. 조회 시 클라이언트가 놓친 이벤트가 있는지 비교하는 기준도 된다. |
 | `participant_count` | 현재까지 join한 인원(나간 사람 포함). 최대 2. |
+| `message_count` | `MESSAGE_CREATED` 수. reducer 상태의 `messageCount` |
+| `last_message_seq` | 마지막 `MESSAGE_CREATED`의 seq. 메시지가 없으면 NULL. reducer 상태의 `lastMessage`는 이 seq로 messages를 조회해 만든다. |
+
+- 이벤트를 저장할 때 reducer에 넣을 현재 상태는 `sessions` + `participants` + 마지막 메시지 한 건으로 만든다. 쓰기마다 이벤트를 재적용하지 않는다.
 
 ### `participants`
 
@@ -105,6 +111,7 @@ CREATE TABLE messages (
 
 - `type`은 이벤트 종류가 늘어날 것을 고려해 `ENUM` 대신 `VARCHAR`로 두고 애플리케이션에서 검증한다.
 - 이 테이블에는 `UPDATE`, `DELETE`를 하지 않는다.
+- TypeORM은 MariaDB의 CHECK 제약을 생성하지 않으므로 `chk_messages_payload`는 마이그레이션에 직접 작성했다.
 
 **타입별 payload**
 
