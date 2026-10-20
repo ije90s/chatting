@@ -29,6 +29,10 @@ export class SessionRepository {
     return this.sessions.findOneBy({ id });
   }
 
+  findParticipant(sessionId: string, userId: string) {
+    return this.participants.findOneBy({ sessionId, userId });
+  }
+
   // reducer 상태와 같은 순서(joined_at, user_id)
   findParticipants(sessionId: string) {
     return this.participants.find({

@@ -316,10 +316,15 @@ REST 응답과 socket 전달에서 같은 형식을 사용한다.
 
 | 방향 | 이벤트 | payload | 설명 |
 |---|---|---|---|
-| 클라이언트 → 서버 | `session:subscribe` | `{ sessionId }` | room `session:{id}`에 들어간다. 참여자만 가능하다. |
-| 클라이언트 → 서버 | `session:unsubscribe` | `{ sessionId }` | room에서 나간다. |
+| 클라이언트 → 서버 | `session:subscribe` | `{ sessionId }` | room `session:{id}`에 들어간다. 참여 기록이 있는 사용자만 가능하다(나간 참여자 포함). |
+| 클라이언트 → 서버 | `session:unsubscribe` | `{ sessionId }` | room에서 나간다. 구독하지 않은 세션이어도 성공이다. |
 | 서버 → 클라이언트 | `session:event` | 이벤트 공통 형식 | 커밋된 모든 이벤트 |
 | 서버 → 클라이언트 | `session:error` | `{ success: false, code, message }` | 구독 실패 등 |
+
+**구독 결과**
+- `session:subscribe`, `session:unsubscribe`는 ack로 결과를 돌려준다. 성공은 `{ success: true, data: { sessionId } }`, 실패는 `{ success: false, code, message }`다.
+- 실패하면 같은 내용을 `session:error`로도 보낸다.
+- 실패 코드: `VALIDATION_ERROR`(`sessionId`가 비어 있지 않은 문자열이 아님), `SESSION_NOT_FOUND`, `NOT_PARTICIPANT`, `INTERNAL_ERROR`.
 
 **presence**
 - `session:subscribe`가 성공하고 그 사용자의 해당 세션 연결이 처음이면 `PRESENCE_ONLINE`을 저장한다.

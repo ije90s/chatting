@@ -1,4 +1,6 @@
 import { Injectable } from '@nestjs/common';
+import { AppException } from '../common/errors/app.exception';
+import { ErrorCode } from '../common/errors/error-code';
 import { EventType } from '../event/event-type';
 import { AppendEventResult, EventService } from '../event/event.service';
 import { AppendEventDto } from './dto/append-event.dto';
@@ -59,6 +61,20 @@ export class SessionService {
           : {},
       clientSentAt: body.clientSentAt ? new Date(body.clientSentAt) : null,
     });
+  }
+
+  // socket 구독 권한. 참여 기록이 있으면 나간 참여자도 허용한다.
+  async requireParticipant(sessionId: string, userId: string): Promise<void> {
+    const [session, participant] = await Promise.all([
+      this.sessionRepository.findById(sessionId),
+      this.sessionRepository.findParticipant(sessionId, userId),
+    ]);
+    if (!session) {
+      throw new AppException(ErrorCode.SESSION_NOT_FOUND);
+    }
+    if (!participant) {
+      throw new AppException(ErrorCode.NOT_PARTICIPANT);
+    }
   }
 
   // 한 건 더 읽어 다음 페이지가 있는지 판단한다.

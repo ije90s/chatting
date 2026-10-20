@@ -273,3 +273,53 @@ describe('SessionService.list', () => {
     expect(repo.findPage).not.toHaveBeenCalled();
   });
 });
+
+describe('SessionService.requireParticipant', () => {
+  let service: SessionService;
+  let repo: jest.Mocked<SessionRepository>;
+
+  beforeEach(() => {
+    repo = {
+      findById: jest.fn().mockResolvedValue({ id: SESSION_ID }),
+      findParticipant: jest.fn().mockResolvedValue({
+        sessionId: SESSION_ID,
+        userId: 'user-a',
+        leftAt: null,
+      }),
+    } as unknown as jest.Mocked<SessionRepository>;
+    service = new SessionService({} as EventService, repo);
+  });
+
+  it('참여자면 통과한다', async () => {
+    await expect(
+      service.requireParticipant(SESSION_ID, 'user-a'),
+    ).resolves.toBeUndefined();
+    expect(repo.findParticipant).toHaveBeenCalledWith(SESSION_ID, 'user-a');
+  });
+
+  it('나간 참여자도 통과한다', async () => {
+    repo.findParticipant.mockResolvedValue({
+      sessionId: SESSION_ID,
+      userId: 'user-a',
+      leftAt: CREATED_AT,
+    } as Participant);
+    await expect(
+      service.requireParticipant(SESSION_ID, 'user-a'),
+    ).resolves.toBeUndefined();
+  });
+
+  it('세션이 없으면 SESSION_NOT_FOUND', async () => {
+    repo.findById.mockResolvedValue(null);
+    repo.findParticipant.mockResolvedValue(null);
+    await expect(
+      service.requireParticipant(SESSION_ID, 'user-a'),
+    ).rejects.toMatchObject({ code: 'SESSION_NOT_FOUND' });
+  });
+
+  it('참여 기록이 없으면 NOT_PARTICIPANT', async () => {
+    repo.findParticipant.mockResolvedValue(null);
+    await expect(
+      service.requireParticipant(SESSION_ID, 'user-c'),
+    ).rejects.toMatchObject({ code: 'NOT_PARTICIPANT' });
+  });
+});

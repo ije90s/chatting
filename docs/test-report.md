@@ -12,17 +12,17 @@
 | 커버리지 | `npm run test:cov` | 단위 테스트 기준 | — |
 
 - 통합/e2e 테스트는 시작할 때 `chatting_test`를 만들고(없으면) 마이그레이션을 적용한다(`test/setup/global-setup.ts`). 개발 DB(`chatting`)는 건드리지 않는다.
-- 통합 테스트는 각 테스트 전에 테이블을 비운다.
+- 통합/e2e 테스트는 각 테스트 전에 테이블을 비운다. 같은 DB를 쓰므로 파일을 순서대로 실행한다(`--runInBand`).
 
 ## 최신 결과 요약
 
-기준: 2026-10-20, 6단계 `ChatGateway` 접속 완료
+기준: 2026-10-20, 6단계 `session:subscribe` / `session:unsubscribe` 완료
 
 | 종류 | 결과 |
 |---|---|
-| 단위 | 109 / 109 통과 (11개 파일) |
+| 단위 | 122 / 122 통과 (12개 파일) |
 | 통합 | 13 / 13 통과 (2개 파일) |
-| e2e | 84 / 84 통과 (3개 파일) |
+| e2e | 88 / 88 통과 (3개 파일) |
 | lint, build | 통과 |
 
 ### 커버리지 (핵심 로직)
@@ -219,3 +219,15 @@ e2e (실제 서버 + `socket.io-client`):
 - `/chat`에 `userId`로 접속한다.
 - `userId`가 없으면 `connect_error`의 `data`로 `{ success: false, code: 'UNAUTHORIZED', message }`를 받는다.
 - 64자를 넘으면 `VALIDATION_ERROR`로 거부한다.
+
+### `session:subscribe` / `session:unsubscribe` — 단위 13, e2e 4
+단위:
+- `SessionService.requireParticipant`: 참여자와 나간 참여자는 통과, 세션이 없으면 `SESSION_NOT_FOUND`, 참여 기록이 없으면 `NOT_PARTICIPANT`.
+- `ChatGateway.subscribe`: 참여자면 `session:{id}` room에 넣고 성공 ack. 권한이 없으면 room에 넣지 않고 ack와 `session:error`로 알린다. `sessionId`가 없거나 비었거나 문자열이 아니면 권한 확인 전에 `VALIDATION_ERROR`. 알 수 없는 에러는 내부 정보를 숨기고 `INTERNAL_ERROR`.
+- `ChatGateway.unsubscribe`: room에서 빼고 성공 ack. `sessionId`가 없으면 `VALIDATION_ERROR`.
+
+e2e (실제 서버 + `socket.io-client`, 세션은 REST로 만든다):
+- 참여자는 구독하고 해제할 수 있다. 나간 참여자도 구독할 수 있다.
+- 참여자가 아니면 `NOT_PARTICIPANT`를 ack와 `session:error`로 받는다. 없는 세션은 `SESSION_NOT_FOUND`.
+
+**발견한 문제:** e2e 파일이 2개를 넘으면서 병렬 실행 중 서로 테이블을 비워 8건이 실패했다. `test:e2e`에 `--runInBand`를 추가해 순서대로 실행한다(3회 연속 통과).

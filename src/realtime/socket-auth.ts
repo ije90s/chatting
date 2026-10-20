@@ -7,9 +7,14 @@ export interface ChatSocketData {
   userId: string;
 }
 
+// 서버 → 클라이언트 이벤트 (docs/api.md "실시간")
+export interface ServerToClientEvents {
+  'session:error': (error: ErrorResponseDto) => void;
+}
+
 export type ChatSocket = Socket<
   Record<string, never>,
-  Record<string, never>,
+  ServerToClientEvents,
   Record<string, never>,
   ChatSocketData
 >;
