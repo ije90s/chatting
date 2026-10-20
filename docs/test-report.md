@@ -16,13 +16,13 @@
 
 ## 최신 결과 요약
 
-기준: 2026-10-20, 5단계 `POST /sessions` 완료
+기준: 2026-10-20, 5단계 `POST /sessions/{id}/join` 완료
 
 | 종류 | 결과 |
 |---|---|
-| 단위 | 85 / 85 통과 (9개 파일) |
+| 단위 | 86 / 86 통과 (9개 파일) |
 | 통합 | 13 / 13 통과 (2개 파일) |
-| e2e | 18 / 18 통과 (2개 파일) |
+| e2e | 26 / 26 통과 (2개 파일) |
 | lint, build | 통과 |
 
 ### 커버리지 (핵심 로직)
@@ -145,3 +145,14 @@ e2e (실제 테스트 DB):
 - 제목의 앞뒤 공백을 제거해 저장한다(가운데 공백은 유지). 제목 100자와 텍스트 기호(©, ™, ❤)는 허용한다.
 - 제목 없음, 빈 제목, 공백만 있는 제목, 101자(공백 제거 후 기준), 문자열이 아닌 제목, 이모지(😀, ❤️, 🇰🇷, 1️⃣), 정의되지 않은 필드는 `400 VALIDATION_ERROR`이고 세션을 저장하지 않는다.
 - `X-User-Id`가 없으면 `401 UNAUTHORIZED`.
+
+### `POST /sessions/{id}/join` — 단위 1, e2e 8
+단위:
+- 요청자의 `PARTICIPANT_JOINED`를 `EventService.append`에 넘기고 결과(`event`, `created`)를 그대로 돌려준다.
+
+e2e (실제 테스트 DB, 나가기·종료 상태는 `EventService`로 만든다):
+- 새로 참여하면 `201`과 seq 3 `PARTICIPANT_JOINED` 이벤트(이벤트 공통 형식)를 돌려주고 `participant_count`가 2가 된다.
+- 이미 참여 중이면 `200`으로 기존 이벤트를 돌려주고 새로 저장하지 않는다. 생성자는 seq 2 이벤트를 받는다.
+- 세 번째 사용자는 `409 SESSION_FULL`, 나간 사용자는 `409 ALREADY_LEFT`.
+- `LEAVE`, `END` 세션에 새 사용자가 참여하면 `409 INVALID_SESSION_STATUS`.
+- 없는 세션은 `404 SESSION_NOT_FOUND`, `X-User-Id`가 없으면 `401 UNAUTHORIZED`.

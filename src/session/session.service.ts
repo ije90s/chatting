@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { EventService } from '../event/event.service';
+import { EventType } from '../event/event-type';
+import { AppendEventResult, EventService } from '../event/event.service';
 import { SessionDto } from './dto/session.dto';
 import { SessionRepository } from './session.repository';
 
@@ -17,6 +18,14 @@ export class SessionService {
       actorId: userId,
     });
     return this.findOne(created.sessionId);
+  }
+
+  // 이미 참여 중이면 기존 PARTICIPANT_JOINED 이벤트를 돌려준다(created: false).
+  join(sessionId: string, userId: string): Promise<AppendEventResult> {
+    return this.eventService.append(sessionId, {
+      type: EventType.PARTICIPANT_JOINED,
+      actorId: userId,
+    });
   }
 
   private async findOne(sessionId: string): Promise<SessionDto> {

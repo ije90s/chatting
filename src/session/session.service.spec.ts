@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/unbound-method -- jest mock 메서드를 expect에 넘기는 패턴 */
 import { EventDto } from '../event/dto/event.dto';
+import { EventType } from '../event/event-type';
 import { EventService } from '../event/event.service';
 import { Participant } from './entities/participant.entity';
 import { Presence, SessionStatus } from './session-status';
@@ -78,5 +79,21 @@ describe('SessionService.create', () => {
       'db down',
     );
     expect(repo.findById).not.toHaveBeenCalled();
+  });
+});
+
+describe('SessionService.join', () => {
+  it('요청자의 PARTICIPANT_JOINED를 EventService에 넘기고 결과를 그대로 돌려준다', async () => {
+    const result = { event: { seq: 3 } as EventDto, created: true };
+    const eventService = {
+      append: jest.fn().mockResolvedValue(result),
+    } as unknown as jest.Mocked<EventService>;
+    const service = new SessionService(eventService, {} as SessionRepository);
+
+    await expect(service.join(SESSION_ID, 'user-b')).resolves.toBe(result);
+    expect(eventService.append).toHaveBeenCalledWith(SESSION_ID, {
+      type: EventType.PARTICIPANT_JOINED,
+      actorId: 'user-b',
+    });
   });
 });

@@ -1,11 +1,13 @@
-import { Body, Controller, HttpStatus, Post } from '@nestjs/common';
+import { Body, Controller, HttpStatus, Param, Post, Res } from '@nestjs/common';
 import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
+import type { Response } from 'express';
 import {
   ApiErrorResponse,
   ApiSuccessResponse,
 } from '../common/decorators/api-response.decorator';
 import { UserId } from '../common/decorators/user-id.decorator';
 import { ErrorCode } from '../common/errors/error-code';
+import { EventDto } from '../event/dto/event.dto';
 import { CreateSessionDto } from './dto/create-session.dto';
 import { SessionDto } from './dto/session.dto';
 import { SessionService } from './session.service';
@@ -29,5 +31,34 @@ export class SessionController {
     @Body() body: CreateSessionDto,
   ): Promise<SessionDto> {
     return this.sessionService.create(userId, body.title);
+  }
+
+  @Post(':id/join')
+  @ApiOperation({
+    summary: '참여',
+    description:
+      '세션이 JOIN이어야 하고 참여자는 최대 2명이다. 이미 참여 중이면 기존 이벤트를 200으로 돌려준다.',
+  })
+  @ApiSuccessResponse(EventDto, HttpStatus.CREATED, '새로 참여')
+  @ApiSuccessResponse(EventDto, HttpStatus.OK, '이미 참여 중 (기존 이벤트)')
+  @ApiErrorResponse(HttpStatus.UNAUTHORIZED, ErrorCode.UNAUTHORIZED)
+  @ApiErrorResponse(HttpStatus.NOT_FOUND, ErrorCode.SESSION_NOT_FOUND)
+  @ApiErrorResponse(
+    HttpStatus.CONFLICT,
+    ErrorCode.SESSION_FULL,
+    ErrorCode.INVALID_SESSION_STATUS,
+    ErrorCode.ALREADY_LEFT,
+  )
+  async join(
+    @UserId() userId: string,
+    @Param('id') sessionId: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<EventDto> {
+    const { event, created } = await this.sessionService.join(
+      sessionId,
+      userId,
+    );
+    res.status(created ? HttpStatus.CREATED : HttpStatus.OK);
+    return event;
   }
 }
