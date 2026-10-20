@@ -82,29 +82,26 @@ export class SessionService {
   }
 
   // 누락 조회: 클라이언트가 seq 빈칸을 발견하거나 재접속했을 때 마지막으로 받은 seq 이후를 채운다.
+  // 메시지 본문을 모두 돌려주므로 참여자(나간 참여자 포함)만 조회할 수 있다.
   async listEvents(
     sessionId: string,
+    userId: string,
     query: ListEventsQueryDto,
   ): Promise<EventListDto> {
+    await this.requireParticipant(sessionId, userId);
     const limit = query.limit ?? DEFAULT_EVENTS_LIMIT;
-    const [session, events] = await Promise.all([
-      this.sessionRepository.findById(sessionId),
-      this.sessionRepository.findEventsAfter(
-        sessionId,
-        query.afterSeq ?? 0,
-        limit + 1,
-      ),
-    ]);
-    if (!session) {
-      throw new AppException(ErrorCode.SESSION_NOT_FOUND);
-    }
+    const events = await this.sessionRepository.findEventsAfter(
+      sessionId,
+      query.afterSeq ?? 0,
+      limit + 1,
+    );
     return {
       items: events.slice(0, limit).map((event) => EventDto.from(event)),
       hasMore: events.length > limit,
     };
   }
 
-  // socket 구독 권한. 참여 기록이 있으면 나간 참여자도 허용한다.
+  // socket 구독과 누락 조회 권한. 참여 기록이 있으면 나간 참여자도 허용한다.
   async requireParticipant(sessionId: string, userId: string): Promise<void> {
     const [session, participant] = await Promise.all([
       this.sessionRepository.findById(sessionId),

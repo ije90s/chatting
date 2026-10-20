@@ -72,19 +72,19 @@ export class SessionController {
   @ApiOperation({
     summary: '이벤트 조회 (누락 복구)',
     description:
-      'afterSeq 다음부터 seq 오름차순으로 돌려준다. 받은 seq가 마지막 seq + 1이 아니거나 재접속했을 때 빠진 이벤트를 채우는 데 쓴다.',
+      '참여자(나간 참여자 포함)만 조회할 수 있다. afterSeq 다음부터 seq 오름차순으로 돌려준다. 받은 seq가 마지막 seq + 1이 아니거나 재접속했을 때 빠진 이벤트를 채우는 데 쓴다.',
   })
   @ApiSuccessResponse(EventListDto)
   @ApiErrorResponse(HttpStatus.BAD_REQUEST, ErrorCode.VALIDATION_ERROR)
   @ApiErrorResponse(HttpStatus.UNAUTHORIZED, ErrorCode.UNAUTHORIZED)
+  @ApiErrorResponse(HttpStatus.FORBIDDEN, ErrorCode.NOT_PARTICIPANT)
   @ApiErrorResponse(HttpStatus.NOT_FOUND, ErrorCode.SESSION_NOT_FOUND)
-  // 조회 범위는 GET /sessions와 같이 전체 세션이다.
   listEvents(
-    @UserId() _userId: string,
+    @UserId() userId: string,
     @Param('id') sessionId: string,
     @Query() query: ListEventsQueryDto,
   ): Promise<EventListDto> {
-    return this.sessionService.listEvents(sessionId, query);
+    return this.sessionService.listEvents(sessionId, userId, query);
   }
 
   @Get(':id/timeline')

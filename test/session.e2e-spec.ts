@@ -1030,6 +1030,21 @@ describe('Sessions (e2e)', () => {
       });
     });
 
+    it('나간 참여자는 조회할 수 있고, 참여 기록이 없으면 403 NOT_PARTICIPANT', async () => {
+      const sessionId = await createWithTwo();
+      await leave(sessionId, 'user-b');
+      await http()
+        .get(`/sessions/${sessionId}/events`)
+        .set('X-User-Id', 'user-b')
+        .expect(200);
+
+      const res = await http()
+        .get(`/sessions/${sessionId}/events`)
+        .set('X-User-Id', 'user-c')
+        .expect(403);
+      expect((res.body as EventsBody).code).toBe('NOT_PARTICIPANT');
+    });
+
     it('없는 세션은 404 SESSION_NOT_FOUND', async () => {
       const res = await events('0192a3b4-0000-7000-8000-000000000000').expect(
         404,

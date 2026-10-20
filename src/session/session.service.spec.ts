@@ -522,6 +522,10 @@ describe('SessionService.listEvents', () => {
   beforeEach(() => {
     repo = {
       findById: jest.fn().mockResolvedValue({ id: SESSION_ID }),
+      findParticipant: jest.fn().mockResolvedValue({
+        sessionId: SESSION_ID,
+        userId: 'user-a',
+      }),
       findEventsAfter: jest.fn().mockResolvedValue([]),
     } as unknown as jest.Mocked<SessionRepository>;
     service = new SessionService(
@@ -533,9 +537,9 @@ describe('SessionService.listEvents', () => {
   });
 
   it('afterSeq 다음부터 limit + 1건을 조회한다(기본 afterSeq 0, limit 100)', async () => {
-    await service.listEvents(SESSION_ID, {});
+    await service.listEvents(SESSION_ID, 'user-a', {});
     expect(repo.findEventsAfter).toHaveBeenCalledWith(SESSION_ID, 0, 101);
-    await service.listEvents(SESSION_ID, { afterSeq: 7, limit: 3 });
+    await service.listEvents(SESSION_ID, 'user-a', { afterSeq: 7, limit: 3 });
     expect(repo.findEventsAfter).toHaveBeenCalledWith(SESSION_ID, 7, 4);
   });
 
@@ -543,7 +547,7 @@ describe('SessionService.listEvents', () => {
     repo.findEventsAfter.mockResolvedValue(
       [8, 9, 10, 11].map(message) as never,
     );
-    const result = await service.listEvents(SESSION_ID, {
+    const result = await service.listEvents(SESSION_ID, 'user-a', {
       afterSeq: 7,
       limit: 3,
     });
@@ -559,14 +563,24 @@ describe('SessionService.listEvents', () => {
   it('더 없으면 hasMore: false', async () => {
     repo.findEventsAfter.mockResolvedValue([8, 9].map(message) as never);
     await expect(
-      service.listEvents(SESSION_ID, { afterSeq: 7, limit: 3 }),
+      service.listEvents(SESSION_ID, 'user-a', { afterSeq: 7, limit: 3 }),
     ).resolves.toMatchObject({ hasMore: false });
   });
 
-  it('세션이 없으면 SESSION_NOT_FOUND', async () => {
+  it('세션이 없으면 SESSION_NOT_FOUND이고 이벤트를 조회하지 않는다', async () => {
     repo.findById.mockResolvedValue(null);
-    await expect(service.listEvents(SESSION_ID, {})).rejects.toMatchObject({
-      code: 'SESSION_NOT_FOUND',
-    });
+    await expect(
+      service.listEvents(SESSION_ID, 'user-a', {}),
+    ).rejects.toMatchObject({ code: 'SESSION_NOT_FOUND' });
+    expect(repo.findEventsAfter).not.toHaveBeenCalled();
+  });
+
+  it('참여 기록이 없으면 NOT_PARTICIPANT이고 이벤트를 조회하지 않는다', async () => {
+    repo.findParticipant.mockResolvedValue(null);
+    await expect(
+      service.listEvents(SESSION_ID, 'user-c', {}),
+    ).rejects.toMatchObject({ code: 'NOT_PARTICIPANT' });
+    expect(repo.findParticipant).toHaveBeenCalledWith(SESSION_ID, 'user-c');
+    expect(repo.findEventsAfter).not.toHaveBeenCalled();
   });
 });
