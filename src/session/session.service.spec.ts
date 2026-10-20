@@ -97,3 +97,46 @@ describe('SessionService.join', () => {
     });
   });
 });
+
+describe('SessionService.appendEvent', () => {
+  let service: SessionService;
+  let eventService: jest.Mocked<EventService>;
+  const CLIENT_EVENT_ID = '6f1c2d3e-4b5a-4c6d-8e7f-9a0b1c2d3e4f';
+
+  beforeEach(() => {
+    eventService = {
+      append: jest.fn().mockResolvedValue({ event: {}, created: true }),
+    } as unknown as jest.Mocked<EventService>;
+    service = new SessionService(eventService, {} as SessionRepository);
+  });
+
+  it('메시지는 content만 payload로 넘기고 clientSentAt을 Date로 바꾼다', async () => {
+    await service.appendEvent(SESSION_ID, 'user-a', {
+      clientEventId: CLIENT_EVENT_ID,
+      type: EventType.MESSAGE_CREATED,
+      payload: { content: '안녕하세요' },
+      clientSentAt: '2026-10-19T15:20:00.100+09:00',
+    });
+    expect(eventService.append).toHaveBeenCalledWith(SESSION_ID, {
+      type: EventType.MESSAGE_CREATED,
+      actorId: 'user-a',
+      clientEventId: CLIENT_EVENT_ID,
+      payload: { content: '안녕하세요' },
+      clientSentAt: new Date('2026-10-19T06:20:00.100Z'),
+    });
+  });
+
+  it('나가기는 빈 payload로 넘기고, clientSentAt이 없으면 null', async () => {
+    await service.appendEvent(SESSION_ID, 'user-a', {
+      clientEventId: CLIENT_EVENT_ID,
+      type: EventType.PARTICIPANT_LEFT,
+    });
+    expect(eventService.append).toHaveBeenCalledWith(SESSION_ID, {
+      type: EventType.PARTICIPANT_LEFT,
+      actorId: 'user-a',
+      clientEventId: CLIENT_EVENT_ID,
+      payload: {},
+      clientSentAt: null,
+    });
+  });
+});

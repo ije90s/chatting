@@ -208,8 +208,8 @@ REST 응답과 socket 전달에서 같은 형식을 사용한다.
 |---|---|---|
 | `clientEventId` | ✅ | 클라이언트가 만든 UUID. 재전송할 때도 같은 값을 쓴다. 아래 "`clientEventId` 규칙" 참고. |
 | `type` | ✅ | `MESSAGE_CREATED` 또는 `PARTICIPANT_LEFT` |
-| `payload` | | `MESSAGE_CREATED`: `{ "content": "..." }` (필수, 최대 길이는 미정) / `PARTICIPANT_LEFT`: `{}` |
-| `clientSentAt` | | 참고용 시각. 정렬에 쓰지 않는다. |
+| `payload` | | `MESSAGE_CREATED`: `{ "content": "..." }` (필수, 비어 있지 않은 문자열, 최대 길이는 미정) / `PARTICIPANT_LEFT`: `{}` 또는 생략. 정의되지 않은 필드가 있으면 `400 VALIDATION_ERROR` |
+| `clientSentAt` | | 참고용 시각(ISO-8601). 정렬에 쓰지 않는다. 응답에서는 UTC로 바꿔 돌려준다. |
 
 **`clientEventId` 규칙**
 - 클라이언트가 만든다. 서버는 발급하지 않는다.

@@ -8,6 +8,7 @@ import {
 import { UserId } from '../common/decorators/user-id.decorator';
 import { ErrorCode } from '../common/errors/error-code';
 import { EventDto } from '../event/dto/event.dto';
+import { AppendEventDto } from './dto/append-event.dto';
 import { CreateSessionDto } from './dto/create-session.dto';
 import { SessionDto } from './dto/session.dto';
 import { SessionService } from './session.service';
@@ -57,6 +58,38 @@ export class SessionController {
     const { event, created } = await this.sessionService.join(
       sessionId,
       userId,
+    );
+    res.status(created ? HttpStatus.CREATED : HttpStatus.OK);
+    return event;
+  }
+
+  @Post(':id/events')
+  @ApiOperation({
+    summary: '이벤트/메시지 수집',
+    description:
+      'MESSAGE_CREATED, PARTICIPANT_LEFT를 받는다. 이미 저장된 clientEventId이거나 이미 나간 사용자의 나가기는 기존 이벤트를 200으로 돌려준다.',
+  })
+  @ApiSuccessResponse(EventDto, HttpStatus.CREATED, '새로 저장')
+  @ApiSuccessResponse(EventDto, HttpStatus.OK, '중복 요청 (기존 이벤트)')
+  @ApiErrorResponse(HttpStatus.BAD_REQUEST, ErrorCode.VALIDATION_ERROR)
+  @ApiErrorResponse(HttpStatus.UNAUTHORIZED, ErrorCode.UNAUTHORIZED)
+  @ApiErrorResponse(HttpStatus.FORBIDDEN, ErrorCode.NOT_PARTICIPANT)
+  @ApiErrorResponse(HttpStatus.NOT_FOUND, ErrorCode.SESSION_NOT_FOUND)
+  @ApiErrorResponse(
+    HttpStatus.CONFLICT,
+    ErrorCode.INVALID_SESSION_STATUS,
+    ErrorCode.ALREADY_LEFT,
+  )
+  async appendEvent(
+    @UserId() userId: string,
+    @Param('id') sessionId: string,
+    @Body() body: AppendEventDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<EventDto> {
+    const { event, created } = await this.sessionService.appendEvent(
+      sessionId,
+      userId,
+      body,
     );
     res.status(created ? HttpStatus.CREATED : HttpStatus.OK);
     return event;

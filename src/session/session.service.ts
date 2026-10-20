@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { EventType } from '../event/event-type';
 import { AppendEventResult, EventService } from '../event/event.service';
+import { AppendEventDto } from './dto/append-event.dto';
 import { SessionDto } from './dto/session.dto';
 import { SessionRepository } from './session.repository';
 
@@ -25,6 +26,24 @@ export class SessionService {
     return this.eventService.append(sessionId, {
       type: EventType.PARTICIPANT_JOINED,
       actorId: userId,
+    });
+  }
+
+  // 메시지, 나가기. 같은 clientEventId나 이미 나간 사용자의 나가기는 기존 이벤트를 돌려준다(created: false).
+  appendEvent(
+    sessionId: string,
+    userId: string,
+    body: AppendEventDto,
+  ): Promise<AppendEventResult> {
+    return this.eventService.append(sessionId, {
+      type: body.type,
+      actorId: userId,
+      clientEventId: body.clientEventId,
+      payload:
+        body.type === EventType.MESSAGE_CREATED
+          ? { content: body.payload!.content }
+          : {},
+      clientSentAt: body.clientSentAt ? new Date(body.clientSentAt) : null,
     });
   }
 
