@@ -57,6 +57,77 @@ docker compose down -v   # 중지 + 데이터 삭제
 | 관측성 | 로그: NestJS `Logger`(stdout), 메트릭: Prometheus v3.5 (`prom-client`, Docker). 분산 추적은 두지 않는다. |
 
 
+## 디렉토리 구조
+
+단위 테스트(`*.spec.ts`)는 대상 파일 옆에 두며 아래 목록에서는 생략했다.
+
+```
+src/
+  main.ts                       앱 시작, Swagger(/docs)
+  app.module.ts                 루트 모듈
+  app.controller.ts             GET / (기동 확인)
+
+  common/                       도메인 공통. common.module.ts가 전역 파이프·인터셉터·필터를 등록
+    errors/                     에러 코드(error-code), AppException, 실패 응답 예외 필터
+    interceptors/               성공 응답 { success: true, data } 래핑
+    pipes/                      전역 ValidationPipe 설정
+    decorators/                 @UserId(X-User-Id), @RawResponse(래핑 제외), Swagger 응답 스키마
+    dto/                        실패 응답 DTO
+
+  database/                     DB 연결
+    typeorm.config.ts           MariaDB 연결 옵션(UTC, utf8mb4, synchronize 끔)
+    database.module.ts          Nest용 TypeORM 모듈
+    data-source.ts              TypeORM CLI(마이그레이션) 진입점
+    migrations/                 테이블 생성 마이그레이션 (sessions·participants, messages, snapshots)
+
+  session/                      세션 REST API 전체
+    session.controller.ts       POST /sessions, /join, /events, /end, GET 목록·이벤트·타임라인
+    session.service.ts          요청을 이벤트로 바꿔 EventService에 저장 요청, 조회
+    session.repository.ts       sessions·participants 조회 쿼리
+    session.reducer.ts          순수 함수 reduce(state, event) → state, 상태 전이 검증
+    session-status.ts           세션 상태(JOIN/LEAVE/END), presence 값
+    session-cursor.ts           GET /sessions 커서 인코딩/디코딩
+    entities/                   Session, Participant (프로젝션 테이블)
+    dto/                        요청·응답 DTO
+
+  event/                        이벤트 저장 (단일 쓰기 경로)
+    event.service.ts            세션 잠금 → 중복 확인 → reducer 검증 → seq 부여 → 이벤트·프로젝션·스냅샷 저장
+    event.repository.ts         messages 쿼리
+    event-type.ts               이벤트 타입 7종
+    entities/message.entity.ts  messages (append-only 이벤트 로그)
+    dto/                        이벤트 공통 응답 DTO
+
+  projection/                   스냅샷과 타임라인 복원
+    snapshot-policy.ts          shouldSnapshot(event): 스냅샷 기록 조건
+    projection.service.ts       특정 시점 복원: 스냅샷 로드 → 이후 이벤트 reduce
+    projection.repository.ts    snapshots 쿼리
+    entities/                   Snapshot
+    dto/                        타임라인 응답 DTO
+
+  realtime/                     socket.io (/chat)
+    chat.gateway.ts             session:subscribe/unsubscribe, presence 이벤트 저장
+    socket-auth.ts              handshake userId 검사, socket 이벤트 타입
+    presence-tracker.ts         사용자별 구독 수 (첫 구독 ONLINE, 마지막 해제 OFFLINE 판단)
+    broadcast.module.ts         Broadcaster, SessionQueue 제공 (Session·Realtime 모듈이 함께 사용)
+    broadcaster.ts              커밋된 이벤트를 세션 room에 전달
+    session-queue.ts            세션별 직렬 큐: 저장 → 커밋 → broadcast를 seq 순서로
+
+  metrics/                      Prometheus (전역 모듈)
+    metrics.controller.ts       GET /metrics
+    metrics.service.ts          Registry, 도메인 메트릭(저장 결과·지연, broadcast 실패, 소켓 수, 큐 대기 수)
+    http-metrics.middleware.ts  REST 요청 처리 시간
+    read-metric.ts              테스트용 메트릭 값 읽기
+
+test/                           MariaDB가 필요한 테스트 (테스트 DB 사용)
+  *.int-spec.ts                 통합: EventService, 타임라인 복원
+  *.e2e-spec.ts                 e2e: 세션 API, socket, 메트릭, 전체 흐름(flow)
+  setup/                        테스트 DB 생성·마이그레이션, 환경 변수
+
+docs/                           설계 문서 (상단 표 참고), todo.md, test-report.md
+monitoring/prometheus.yml       Prometheus 수집 설정
+docker-compose.yml              MariaDB, Prometheus
+```
+
 ## 주요 의사결정 요약
 
 ### 애플리케이션 구성
@@ -112,6 +183,29 @@ src/<domain>/
 - 모든 이벤트 저장은 `EventService` 한 곳에서 하고, broadcast는 커밋 후에 한다. 중복 요청은 broadcast하지 않는다.
 - 같은 세션의 "저장 → 커밋 → broadcast"를 세션별 큐에서 하나씩 실행해, 연결 중인 클라이언트는 이벤트를 seq 순서로 받는다.
 - 끊긴 동안의 이벤트는 다시 보내지 않는다. 클라이언트는 seq 빈칸을 발견하거나 재접속하면 `GET /sessions/{id}/events?afterSeq=`(참여자만)로 채운다.
+
+메시지를 주고받는 흐름 (보내기는 REST, 받기는 socket):
+
+```mermaid
+sequenceDiagram
+  participant A as 사용자 A
+  participant S as 서버
+  participant B as 사용자 B
+  Note over A,B: ① 구독
+  A->>S: socket 연결(/chat) + session:subscribe
+  B->>S: socket 연결(/chat) + session:subscribe
+  Note over S: 세션 room에 추가, 첫 구독이면 PRESENCE_ONLINE 저장
+  Note over A,B: ② 보내기 (REST)
+  A->>S: POST /sessions/{id}/events (MESSAGE_CREATED)
+  Note over S: 세션 큐에서 저장, seq 부여, 커밋
+  S-->>A: 201 (seq 7)
+  Note over A,B: ③ 받기 (socket, 보낸 사람 포함)
+  S-->>A: session:event (seq 7)
+  S-->>B: session:event (seq 7)
+  Note over A,B: ④ 끊겼던 동안 빠진 이벤트 채우기
+  B->>S: GET /sessions/{id}/events?afterSeq=6
+  S-->>B: seq 7 이후 이벤트
+```
 
 ### 관측성
 
