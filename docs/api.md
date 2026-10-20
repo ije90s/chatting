@@ -60,7 +60,7 @@ X-User-Id: user-a
 | 401 | `UNAUTHORIZED` | 사용자 식별 정보 없음 |
 | 403 | `NOT_PARTICIPANT` | 세션 참여자가 아닌 사용자의 요청 |
 | 404 | `NOT_FOUND` | 없는 경로 |
-| 404 | `SESSION_NOT_FOUND` | 세션 없음 |
+| 404 | `SESSION_NOT_FOUND` | 세션 없음 (UUID 형식이 아닌 세션 ID 포함) |
 | 409 | `SESSION_FULL` | 참여자가 이미 2명 |
 | 409 | `INVALID_SESSION_STATUS` | 현재 세션 상태에서 허용되지 않는 요청 (예: `END` 세션에 메시지) |
 | 409 | `ALREADY_LEFT` | 이미 나간 참여자가 다시 요청 |
