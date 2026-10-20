@@ -22,7 +22,7 @@
 |---|---|
 | 단위 | 85 / 85 통과 (9개 파일) |
 | 통합 | 13 / 13 통과 (2개 파일) |
-| e2e | 10 / 10 통과 (2개 파일) |
+| e2e | 18 / 18 통과 (2개 파일) |
 | lint, build | 통과 |
 
 ### 커버리지 (핵심 로직)
@@ -133,7 +133,7 @@
 
 ## 5단계. session (API)
 
-### `POST /sessions` — 단위 3, e2e 8
+### `POST /sessions` — 단위 3, e2e 16
 단위 (`SessionService`, `EventService`·리포지토리 mock):
 - 요청자를 생성자(`actorId`)로 `EventService.createSession`에 넘긴다.
 - 커밋된 프로젝션을 세션 형식으로 바꾼다(시각은 ISO-8601, BIGINT `lastSeq`는 숫자).
@@ -142,6 +142,6 @@
 e2e (실제 테스트 DB):
 - `201`과 세션 형식을 돌려준다. ID는 UUID v7, `status = JOIN`, 참여자는 생성자 1명(`OFFLINE`), `lastSeq = 2`.
 - `messages`에 seq 1 `SESSION_CREATED`, seq 2 `PARTICIPANT_JOINED`가 저장된다.
-- 제목 100자는 허용한다.
-- 제목 없음, 빈 제목, 101자, 문자열이 아닌 제목, 정의되지 않은 필드는 `400 VALIDATION_ERROR`이고 세션을 저장하지 않는다.
+- 제목의 앞뒤 공백을 제거해 저장한다(가운데 공백은 유지). 제목 100자와 텍스트 기호(©, ™, ❤)는 허용한다.
+- 제목 없음, 빈 제목, 공백만 있는 제목, 101자(공백 제거 후 기준), 문자열이 아닌 제목, 이모지(😀, ❤️, 🇰🇷, 1️⃣), 정의되지 않은 필드는 `400 VALIDATION_ERROR`이고 세션을 저장하지 않는다.
 - `X-User-Id`가 없으면 `401 UNAUTHORIZED`.

@@ -78,6 +78,23 @@ describe('Sessions (e2e)', () => {
       ]);
     });
 
+    it('제목의 앞뒤 공백을 제거해 저장한다', async () => {
+      const res = await http()
+        .post('/sessions')
+        .set('X-User-Id', 'user-a')
+        .send({ title: '  상담  문의 ' })
+        .expect(201);
+      expect((res.body as Body).data.title).toBe('상담  문의');
+    });
+
+    it('텍스트 기호(©, ™, ❤)는 허용한다', async () => {
+      await http()
+        .post('/sessions')
+        .set('X-User-Id', 'user-a')
+        .send({ title: '상담© 문의™ ❤' })
+        .expect(201);
+    });
+
     it('제목은 100자까지 허용한다', async () => {
       await http()
         .post('/sessions')
@@ -89,7 +106,13 @@ describe('Sessions (e2e)', () => {
     it.each([
       ['제목 없음', {}],
       ['빈 제목', { title: '' }],
+      ['공백만 있는 제목', { title: ' \t\n ' }],
+      ['이모지 제목', { title: '상담 😀' }],
+      ['이모지 표시 선택자', { title: '상담 ❤️' }],
+      ['국기 이모지', { title: '상담 🇰🇷' }],
+      ['키캡 이모지', { title: '상담 1️⃣' }],
       ['101자 제목', { title: '가'.repeat(101) }],
+      ['공백 제거 후 101자', { title: ` ${'가'.repeat(101)} ` }],
       ['문자열이 아닌 제목', { title: 1 }],
       ['정의되지 않은 필드', { title: '상담', extra: true }],
     ])('%s은 400 VALIDATION_ERROR이고 저장하지 않는다', async (_name, send) => {
