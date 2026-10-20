@@ -40,6 +40,8 @@
 - [x] `session:subscribe` / `session:unsubscribe`
 - [x] presence: 첫 연결 시 `PRESENCE_ONLINE`, 연결이 모두 끊기면 `PRESENCE_OFFLINE`
 - [x] 커밋 후 `session:event` broadcast (중복 요청은 broadcast하지 않음)
+- [x] 같은 세션의 broadcast를 seq 순서로 보장 (`SessionQueue`)
+- [x] 누락 조회 API: `GET /sessions/{id}/events?afterSeq=`
 
 ## 7. 마무리
 

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, MoreThan, Repository } from 'typeorm';
+import { Message } from '../event/entities/message.entity';
 import { Participant } from './entities/participant.entity';
 import { Session } from './entities/session.entity';
 import type { SessionCursor } from './session-cursor';
@@ -23,6 +24,8 @@ export class SessionRepository {
     private readonly sessions: Repository<Session>,
     @InjectRepository(Participant)
     private readonly participants: Repository<Participant>,
+    @InjectRepository(Message)
+    private readonly messages: Repository<Message>,
   ) {}
 
   findById(id: string) {
@@ -85,6 +88,15 @@ export class SessionRepository {
     return this.participants.find({
       where: { sessionId: In(sessionIds) },
       order: { joinedAt: 'ASC', userId: 'ASC' },
+    });
+  }
+
+  // afterSeq 초과 이벤트를 seq 오름차순으로 (uk_messages_session_seq)
+  findEventsAfter(sessionId: string, afterSeq: number, limit: number) {
+    return this.messages.find({
+      where: { sessionId, seq: MoreThan(afterSeq) },
+      order: { seq: 'ASC' },
+      take: limit,
     });
   }
 }

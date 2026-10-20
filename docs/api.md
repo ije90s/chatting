@@ -147,6 +147,7 @@ REST 응답과 socket 전달에서 같은 형식을 사용한다.
 | `POST /sessions/{id}/events` | 이벤트/메시지 수집 |
 | `POST /sessions/{id}/end` | 종료 |
 | `GET /sessions` | 세션 목록 조회 (기간/상태/참여자 필터) |
+| `GET /sessions/{id}/events?afterSeq=` | 이벤트 조회 (누락 복구) |
 | `GET /sessions/{id}/timeline?at=` | 특정 시점 상태 복원 |
 
 ### `POST /sessions` 세션 생성
@@ -269,6 +270,32 @@ REST 응답과 socket 전달에서 같은 형식을 사용한다.
 }
 ```
 
+### `GET /sessions/{id}/events?afterSeq=` 이벤트 조회 (누락 복구)
+
+`afterSeq` 다음 seq부터 이벤트를 seq 오름차순으로 돌려준다. 모든 이벤트 타입(시스템 메시지, presence 포함)을 포함한다.
+
+- `X-User-Id`가 필요하다(없으면 `401`). 조회 범위는 `GET /sessions`와 같이 전체 세션이다.
+- 클라이언트는 아래 경우에 마지막으로 받은 seq를 `afterSeq`로 넣어 호출한다.
+  - socket으로 받은 seq가 마지막 seq + 1이 아닐 때
+  - 재접속했을 때(끊긴 동안의 이벤트는 socket으로 다시 오지 않는다)
+- `hasMore`가 `true`면 마지막 항목의 seq를 `afterSeq`로 다시 호출한다.
+- 조회 결과와 socket 이벤트가 겹칠 수 있으므로 클라이언트는 seq로 중복을 거른다.
+
+| 파라미터 | 필수 | 설명 |
+|---|---|---|
+| `afterSeq` | | 이 seq 다음부터 조회한다. 기본 0(처음부터), 0 이상 정수 |
+| `limit` | | 기본 100, 1~500 |
+
+범위를 벗어난 값, 정수가 아닌 값, 정의되지 않은 파라미터는 `400 VALIDATION_ERROR`다. 세션이 없으면 `404 SESSION_NOT_FOUND`다.
+
+**Response 200** (`data`)
+```json
+{
+  "items": [ { "...": "이벤트 공통 형식" } ],
+  "hasMore": false
+}
+```
+
 ### `GET /sessions/{id}/timeline?at=` 특정 시점 상태 복원
 
 | 파라미터 | 필수 | 설명 |
@@ -326,7 +353,7 @@ REST 응답과 socket 전달에서 같은 형식을 사용한다.
 - 중복 요청(같은 `clientEventId`, 다시 참여, 다시 나가기, 다시 종료)과 실패한 요청은 전달하지 않는다.
 - 이미 커밋된 뒤이므로 전달에 실패해도 요청 결과는 바뀌지 않고 서버 로그만 남는다.
 - 같은 세션의 이벤트는 seq 순서로 전달한다. 서버는 세션별 큐에서 "저장 → 커밋 → broadcast"를 한 작업으로 하나씩 실행하고, socket.io는 한 연결 안에서 emit 순서를 지킨다. 따라서 연결이 유지되는 동안 클라이언트는 seq 순서로 받는다.
-- 연결이 끊긴 동안의 이벤트는 다시 보내지 않는다. 클라이언트는 받은 seq가 마지막 seq + 1이 아니거나 재접속하면 누락 조회 API로 빠진 이벤트를 채운다.
+- 연결이 끊긴 동안의 이벤트는 다시 보내지 않는다. 클라이언트는 받은 seq가 마지막 seq + 1이 아니거나 재접속하면 `GET /sessions/{id}/events?afterSeq=`로 빠진 이벤트를 채운다.
 
 **구독 결과**
 - `session:subscribe`, `session:unsubscribe`는 ack로 결과를 돌려준다. 성공은 `{ success: true, data: { sessionId } }`, 실패는 `{ success: false, code, message }`다.

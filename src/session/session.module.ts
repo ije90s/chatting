@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { Message } from '../event/entities/message.entity';
 import { EventModule } from '../event/event.module';
 import { ProjectionModule } from '../projection/projection.module';
 import { BroadcastModule } from '../realtime/broadcast.module';
@@ -11,7 +12,7 @@ import { SessionService } from './session.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Session, Participant]),
+    TypeOrmModule.forFeature([Session, Participant, Message]),
     EventModule,
     ProjectionModule,
     BroadcastModule,

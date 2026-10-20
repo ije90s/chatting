@@ -961,4 +961,98 @@ describe('Sessions (e2e)', () => {
       expect((res.body as TimelineBody).code).toBe('UNAUTHORIZED');
     });
   });
+
+  describe('GET /sessions/{id}/events', () => {
+    interface EventsBody {
+      success: boolean;
+      code?: string;
+      data: { items: { seq: number; type: string }[]; hasMore: boolean };
+    }
+
+    function events(
+      sessionId: string,
+      query: Record<string, string | number> = {},
+    ) {
+      return http()
+        .get(`/sessions/${sessionId}/events`)
+        .set('X-User-Id', 'user-a')
+        .query(query);
+    }
+
+    it('afterSeq 다음부터 seq 오름차순으로 모든 타입의 이벤트를 돌려준다', async () => {
+      const sessionId = await createWithTwo(); // 1~3
+      const sent = await sendMessage(sessionId, 'user-a', '안녕').expect(201); // 4
+      await leave(sessionId, 'user-b'); // 5
+
+      const all = await events(sessionId).expect(200);
+      expect((all.body as EventsBody).data).toEqual({
+        items: [
+          expect.objectContaining({ seq: 1, type: 'SESSION_CREATED' }),
+          expect.objectContaining({ seq: 2, type: 'PARTICIPANT_JOINED' }),
+          expect.objectContaining({ seq: 3, type: 'PARTICIPANT_JOINED' }),
+          (sent.body as Body).data,
+          expect.objectContaining({ seq: 5, type: 'PARTICIPANT_LEFT' }),
+        ],
+        hasMore: false,
+      });
+
+      const after = await events(sessionId, { afterSeq: 3 }).expect(200);
+      expect((after.body as EventsBody).data.items.map((e) => e.seq)).toEqual([
+        4, 5,
+      ]);
+    });
+
+    it('limit으로 나눠 받고, hasMore가 false가 될 때까지 이어 받으면 빠짐이 없다', async () => {
+      const sessionId = await createWithTwo();
+      for (let i = 0; i < 4; i++) {
+        await sendMessage(sessionId, 'user-a', `m${i}`).expect(201);
+      }
+
+      const seqs: number[] = [];
+      let afterSeq = 0;
+      let hasMore = true;
+      while (hasMore) {
+        const res = await events(sessionId, { afterSeq, limit: 3 }).expect(200);
+        const { data } = res.body as EventsBody;
+        seqs.push(...data.items.map((e) => e.seq));
+        afterSeq = seqs.at(-1)!;
+        hasMore = data.hasMore;
+      }
+      expect(seqs).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    });
+
+    it('마지막 seq 이후를 조회하면 빈 목록이다', async () => {
+      const sessionId = await createSession();
+      const res = await events(sessionId, { afterSeq: 2 }).expect(200);
+      expect((res.body as EventsBody).data).toEqual({
+        items: [],
+        hasMore: false,
+      });
+    });
+
+    it('없는 세션은 404 SESSION_NOT_FOUND', async () => {
+      const res = await events('0192a3b4-0000-7000-8000-000000000000').expect(
+        404,
+      );
+      expect((res.body as EventsBody).code).toBe('SESSION_NOT_FOUND');
+    });
+
+    it.each([
+      ['음수 afterSeq', { afterSeq: -1 }],
+      ['정수가 아닌 afterSeq', { afterSeq: 'abc' }],
+      ['limit 0', { limit: 0 }],
+      ['limit 501', { limit: 501 }],
+      ['정의되지 않은 파라미터', { beforeSeq: 1 }],
+    ])('%s은 400 VALIDATION_ERROR', async (_name, query) => {
+      const sessionId = await createSession();
+      const res = await events(sessionId, query).expect(400);
+      expect((res.body as EventsBody).code).toBe('VALIDATION_ERROR');
+    });
+
+    it('X-User-Id가 없으면 401 UNAUTHORIZED', async () => {
+      const sessionId = await createSession();
+      const res = await http().get(`/sessions/${sessionId}/events`).expect(401);
+      expect((res.body as EventsBody).code).toBe('UNAUTHORIZED');
+    });
+  });
 });

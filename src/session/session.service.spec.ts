@@ -500,3 +500,73 @@ describe('SessionService broadcast', () => {
     ]);
   });
 });
+
+describe('SessionService.listEvents', () => {
+  let service: SessionService;
+  let repo: jest.Mocked<SessionRepository>;
+
+  function message(seq: number) {
+    return {
+      id: seq,
+      sessionId: SESSION_ID,
+      seq,
+      type: EventType.MESSAGE_CREATED,
+      actorId: 'user-a',
+      clientEventId: null,
+      payload: { content: `m${seq}` },
+      clientSentAt: null,
+      receivedAt: CREATED_AT,
+    };
+  }
+
+  beforeEach(() => {
+    repo = {
+      findById: jest.fn().mockResolvedValue({ id: SESSION_ID }),
+      findEventsAfter: jest.fn().mockResolvedValue([]),
+    } as unknown as jest.Mocked<SessionRepository>;
+    service = new SessionService(
+      {} as EventService,
+      repo,
+      noBroadcast(),
+      new SessionQueue(),
+    );
+  });
+
+  it('afterSeq 다음부터 limit + 1건을 조회한다(기본 afterSeq 0, limit 100)', async () => {
+    await service.listEvents(SESSION_ID, {});
+    expect(repo.findEventsAfter).toHaveBeenCalledWith(SESSION_ID, 0, 101);
+    await service.listEvents(SESSION_ID, { afterSeq: 7, limit: 3 });
+    expect(repo.findEventsAfter).toHaveBeenCalledWith(SESSION_ID, 7, 4);
+  });
+
+  it('한 건이 더 있으면 limit건과 hasMore: true', async () => {
+    repo.findEventsAfter.mockResolvedValue(
+      [8, 9, 10, 11].map(message) as never,
+    );
+    const result = await service.listEvents(SESSION_ID, {
+      afterSeq: 7,
+      limit: 3,
+    });
+    expect(result.items.map((e) => e.seq)).toEqual([8, 9, 10]);
+    expect(result.items[0]).toMatchObject({
+      eventId: 8,
+      payload: { content: 'm8' },
+      receivedAt: '2026-10-19T06:00:00.000Z',
+    });
+    expect(result.hasMore).toBe(true);
+  });
+
+  it('더 없으면 hasMore: false', async () => {
+    repo.findEventsAfter.mockResolvedValue([8, 9].map(message) as never);
+    await expect(
+      service.listEvents(SESSION_ID, { afterSeq: 7, limit: 3 }),
+    ).resolves.toMatchObject({ hasMore: false });
+  });
+
+  it('세션이 없으면 SESSION_NOT_FOUND', async () => {
+    repo.findById.mockResolvedValue(null);
+    await expect(service.listEvents(SESSION_ID, {})).rejects.toMatchObject({
+      code: 'SESSION_NOT_FOUND',
+    });
+  });
+});

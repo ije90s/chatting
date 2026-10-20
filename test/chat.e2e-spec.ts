@@ -472,4 +472,63 @@ describe('ChatGateway (e2e)', () => {
       expect(seqs).toEqual([...seqs].sort((x, y) => x - y));
     });
   });
+
+  describe('재접속 후 누락 복구', () => {
+    it('끊긴 동안의 이벤트를 GET /sessions/{id}/events로 채우면 빈틈없이 이어진다', async () => {
+      const http = () => request(app.getHttpServer());
+      const created = await http()
+        .post('/sessions')
+        .set('X-User-Id', 'user-a')
+        .send({ title: '상담 문의' })
+        .expect(201);
+      const sessionId = (created.body as { data: { id: string } }).data.id;
+      await http()
+        .post(`/sessions/${sessionId}/join`)
+        .set('X-User-Id', 'user-b')
+        .expect(201);
+      const send = () =>
+        http()
+          .post(`/sessions/${sessionId}/events`)
+          .set('X-User-Id', 'user-b')
+          .send({
+            clientEventId: uuidv4(),
+            type: 'MESSAGE_CREATED',
+            payload: { content: '안녕' },
+          })
+          .expect(201);
+
+      // 연결 중에 받은 마지막 seq를 기억한다.
+      const first = connect({ userId: 'user-a' });
+      await outcome(first);
+      const seen: number[] = [];
+      first.on('session:event', (e: { seq: number }) => seen.push(e.seq));
+      await first.emitWithAck('session:subscribe', { sessionId });
+      await send();
+      const deadline = Date.now() + 2000;
+      while (seen.length < 2 && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      first.disconnect();
+
+      // 끊긴 동안 메시지 3건
+      await send();
+      await send();
+      await send();
+
+      const lastSeen = Math.max(...seen);
+      const res = await http()
+        .get(`/sessions/${sessionId}/events`)
+        .set('X-User-Id', 'user-a')
+        .query({ afterSeq: lastSeen })
+        .expect(200);
+      const missed = (
+        res.body as { data: { items: { seq: number }[] } }
+      ).data.items.map((e) => e.seq);
+      const merged = [...seen, ...missed];
+      expect(merged).toEqual(
+        Array.from({ length: merged.length }, (_, i) => merged[0] + i),
+      );
+      expect(missed.length).toBeGreaterThanOrEqual(3);
+    });
+  });
 });

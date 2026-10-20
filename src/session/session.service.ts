@@ -9,7 +9,13 @@ import {
 } from '../event/event.service';
 import { Broadcaster } from '../realtime/broadcaster';
 import { SessionQueue } from '../realtime/session-queue';
+import { EventDto } from '../event/dto/event.dto';
 import { AppendEventDto } from './dto/append-event.dto';
+import {
+  DEFAULT_EVENTS_LIMIT,
+  EventListDto,
+  ListEventsQueryDto,
+} from './dto/list-events.dto';
 import {
   DEFAULT_LIST_LIMIT,
   ListSessionsQueryDto,
@@ -73,6 +79,29 @@ export class SessionService {
           : {},
       clientSentAt: body.clientSentAt ? new Date(body.clientSentAt) : null,
     });
+  }
+
+  // 누락 조회: 클라이언트가 seq 빈칸을 발견하거나 재접속했을 때 마지막으로 받은 seq 이후를 채운다.
+  async listEvents(
+    sessionId: string,
+    query: ListEventsQueryDto,
+  ): Promise<EventListDto> {
+    const limit = query.limit ?? DEFAULT_EVENTS_LIMIT;
+    const [session, events] = await Promise.all([
+      this.sessionRepository.findById(sessionId),
+      this.sessionRepository.findEventsAfter(
+        sessionId,
+        query.afterSeq ?? 0,
+        limit + 1,
+      ),
+    ]);
+    if (!session) {
+      throw new AppException(ErrorCode.SESSION_NOT_FOUND);
+    }
+    return {
+      items: events.slice(0, limit).map((event) => EventDto.from(event)),
+      hasMore: events.length > limit,
+    };
   }
 
   // socket 구독 권한. 참여 기록이 있으면 나간 참여자도 허용한다.

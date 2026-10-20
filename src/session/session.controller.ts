@@ -21,6 +21,7 @@ import { TimelineDto } from '../projection/dto/timeline.dto';
 import { ProjectionService } from '../projection/projection.service';
 import { AppendEventDto } from './dto/append-event.dto';
 import { CreateSessionDto } from './dto/create-session.dto';
+import { EventListDto, ListEventsQueryDto } from './dto/list-events.dto';
 import { ListSessionsQueryDto, SessionListDto } from './dto/list-sessions.dto';
 import { SessionDto } from './dto/session.dto';
 import { TimelineQueryDto } from './dto/timeline-query.dto';
@@ -65,6 +66,25 @@ export class SessionController {
     @Query() query: ListSessionsQueryDto,
   ): Promise<SessionListDto> {
     return this.sessionService.list(query);
+  }
+
+  @Get(':id/events')
+  @ApiOperation({
+    summary: '이벤트 조회 (누락 복구)',
+    description:
+      'afterSeq 다음부터 seq 오름차순으로 돌려준다. 받은 seq가 마지막 seq + 1이 아니거나 재접속했을 때 빠진 이벤트를 채우는 데 쓴다.',
+  })
+  @ApiSuccessResponse(EventListDto)
+  @ApiErrorResponse(HttpStatus.BAD_REQUEST, ErrorCode.VALIDATION_ERROR)
+  @ApiErrorResponse(HttpStatus.UNAUTHORIZED, ErrorCode.UNAUTHORIZED)
+  @ApiErrorResponse(HttpStatus.NOT_FOUND, ErrorCode.SESSION_NOT_FOUND)
+  // 조회 범위는 GET /sessions와 같이 전체 세션이다.
+  listEvents(
+    @UserId() _userId: string,
+    @Param('id') sessionId: string,
+    @Query() query: ListEventsQueryDto,
+  ): Promise<EventListDto> {
+    return this.sessionService.listEvents(sessionId, query);
   }
 
   @Get(':id/timeline')
