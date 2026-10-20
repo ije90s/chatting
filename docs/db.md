@@ -15,6 +15,53 @@ MariaDB 기반 테이블 설계이다. API 명세는 [api.md](./api.md)를 참�
 - 이벤트 저장과 프로젝션 갱신은 **같은 트랜잭션**에서 처리한다. 프로젝션이 이벤트보다 늦거나 앞서는 상황을 만들지 않는다.
 - 프로젝션은 이벤트를 처음부터 다시 적용하면 언제든 재구성할 수 있어야 한다.
 
+### 테이블 관계
+
+```mermaid
+erDiagram
+    sessions ||--|{ participants : "참여 (1~2명)"
+    sessions ||--|{ messages : "이벤트 로그 (seq 1부터)"
+    sessions ||--o{ snapshots : "특정 seq 상태"
+    messages ||..o| snapshots : "같은 (session_id, seq)"
+
+    sessions {
+        CHAR(36) id PK "UUID v7"
+        VARCHAR(100) title
+        ENUM status "JOIN, LEAVE, END"
+        BIGINT last_seq "seq 발급 카운터"
+        INT message_count
+        BIGINT last_message_seq
+        DATETIME created_at
+    }
+    participants {
+        CHAR(36) session_id PK, FK
+        VARCHAR(64) user_id PK
+        DATETIME joined_at
+        DATETIME left_at "NULL이면 참여 중"
+        ENUM presence "ONLINE, OFFLINE"
+    }
+    messages {
+        BIGINT id PK
+        CHAR(36) session_id FK "UK(session_id, seq)"
+        BIGINT seq
+        VARCHAR(32) type
+        VARCHAR(64) actor_id
+        CHAR(36) client_event_id "UK(session_id, client_event_id)"
+        JSON payload
+        DATETIME received_at
+    }
+    snapshots {
+        CHAR(36) session_id PK, FK
+        BIGINT seq PK
+        JSON state "reducer 결과"
+    }
+```
+
+- 모든 테이블은 `sessions`를 중심으로 1:N이다. 세션이 만들어질 때 `SESSION_CREATED`(seq 1)와 생성자의 `PARTICIPANT_JOINED`(seq 2)가 함께 저장되므로, 세션에는 참여자와 이벤트가 항상 1개 이상 있다.
+- `participants`는 세션당 최대 2행이다. 나간 참여자도 행을 지우지 않고 `left_at`만 채운다.
+- `snapshots`는 `messages`의 특정 seq 시점 상태다. FK는 `sessions`에만 걸고, `messages`와는 `(session_id, seq)` 값으로만 대응한다(점선). 스냅샷은 지워도 되는 캐시다.
+- 사용자 테이블은 없다. `user_id`, `actor_id`, `created_by`는 `X-User-Id` 헤더 값을 그대로 저장한다.
+
 ## 2. 공통 규칙
 
 - 엔진 `InnoDB`, 문자셋 `utf8mb4`, collation `utf8mb4_unicode_ci`
@@ -157,11 +204,70 @@ CREATE TABLE snapshots (
 - `SESSION_CREATED`(seq 1)는 빈 상태와 거의 같으므로 기록하지 않는다. presence 이벤트는 100개 조건에 걸릴 때만 기록된다.
 - 기록 조건 판단은 순수 함수(`shouldSnapshot(event)`)로 두고 테스트한다.
 
-## 4. 미결 사항
+## 4. 핫패스 쿼리와 인덱스
 
-- [x] ORM 선택 및 마이그레이션 방식 → TypeORM, 엔티티 변경 후 `migration:generate`로 생성하고 `migration:run`으로 적용
-- [x] 세션 ID 형식 → UUID v7, `CHAR(36)`. 삽입 위치가 순차적이고 조회 시 읽기 쉽다. `BINARY(16)`은 변환 비용 대비 이득이 작아 쓰지 않는다.
-- [x] 사용자 테이블 도입 여부 → 도입하지 않는다. 인증/인가는 요구사항 범위 밖이므로 `user_id` 문자열만 저장하고 FK를 걸지 않는다.
-- [x] 스냅샷 기록 시점 → 상태 변경 시 + 100개마다 (3장)
-- [x] 참여자가 모두 나간 세션 처리 → `LEAVE`(중단)로 둔다. 정상 종료 없이 나간 세션이므로 정의대로의 기록이고, 자동 `END` 처리나 정리 배치는 두지 않는다. 종료(`end`)는 api.md대로 참여 중인 사용자만 할 수 있다. socket.io room은 비면 메모리에서 자동으로 사라지므로 따로 정리하지 않는다.
-- [ ] 메시지 보관 기간, 삭제/수정 메시지 지원 여부 (오래된 세션 정리 배치가 필요한지도 이때 함께 정한다)
+가장 자주 실행되는 쿼리 3개와, 각 쿼리가 빠르게 동작하도록 둔 인덱스를 정리한다.
+
+모든 쿼리는 `session_id`로 먼저 범위를 좁힌다. 그래서 전체 세션이 아무리 많아도 **해당 세션의 행만** 읽는다.
+
+### 4.1 메시지 저장 (메시지를 보낼 때마다)
+
+가장 자주 실행되는 경로다. 한 트랜잭션 안에서 아래 순서로 실행한다.
+
+```sql
+-- ① 세션을 잠근다: 같은 세션의 저장을 한 줄로 세운다
+SELECT * FROM sessions WHERE id = ? FOR UPDATE;
+-- ② 이미 저장된 메시지인지 확인한다 (재전송 중복 방지)
+SELECT * FROM messages WHERE session_id = ? AND client_event_id = ?;
+-- ③ 현재 상태를 읽는다: 참여자 2명과 마지막 메시지
+SELECT * FROM participants WHERE session_id = ?;
+SELECT * FROM messages WHERE session_id = ? AND seq = ?;
+-- ④ 저장한다
+INSERT INTO messages ...;  UPDATE sessions ...;
+```
+
+| 단계 | 쓰는 인덱스 | 이유 |
+|---|---|---|
+| ① 잠금 | `sessions` PK | 세션 한 행만 잠근다. 다른 세션의 저장은 기다리지 않는다. |
+| ② 중복 확인 | `uk_messages_session_client_event` | 한 번에 찾는다. 같은 메시지가 동시에 두 번 와도 UNIQUE 제약이 두 번째 저장을 막는다. |
+| ③ 참여자 | `participants` PK `(session_id, user_id)` | 세션의 참여자 2명을 바로 찾는다. 같은 사용자가 한 세션에 두 번 들어가지 않게 구분하는 키이기도 하다. |
+| ③ 마지막 메시지 | `uk_messages_session_seq` | 마지막 메시지 한 건만 읽는다. 지난 메시지를 전부 다시 읽지 않는다. |
+
+**느려질 수 있는 곳:** 같은 세션의 저장은 잠금 때문에 하나씩 처리된다. 그래서 트랜잭션 안의 쿼리를 모두 "인덱스로 한 번에 찾기"로 만들어 잠금 시간을 짧게 했다. 1:1 채팅은 한 세션에 메시지가 몰리지 않아 문제가 되지 않는다.
+
+### 4.2 빠진 메시지 조회 (다시 연결할 때마다)
+
+`GET /sessions/{id}/events?afterSeq=`. 마지막으로 받은 번호(seq) 다음부터 가져온다.
+
+```sql
+SELECT * FROM messages WHERE session_id = ? AND seq > ? ORDER BY seq LIMIT ?;
+```
+
+| 쓰는 인덱스 | 이유 |
+|---|---|
+| `uk_messages_session_seq` | 인덱스가 이미 seq 순서로 정렬되어 있어, 빠진 부분부터 필요한 만큼만 차례로 읽는다. 따로 정렬하지 않는다. |
+
+**느려질 수 있는 곳:** 오래 끊겼던 사용자는 빠진 메시지가 많다. 한 번에 최대 500개까지만 주고, 나머지는 이어서 요청하게 한다(`hasMore`).
+
+### 4.3 특정 시점 상태 복원
+
+`GET /sessions/{id}/timeline?at=`. 그 시각의 세션 상태를 다시 계산한다.
+
+```sql
+-- ① 그 시각까지 저장된 마지막 번호(seq)를 찾는다
+SELECT MAX(seq) FROM messages WHERE session_id = ? AND received_at <= ?;
+-- ② 그 번호 이전의 가장 가까운 스냅샷(저장해 둔 상태)을 읽는다
+SELECT * FROM snapshots WHERE session_id = ? AND seq <= ? ORDER BY seq DESC LIMIT 1;
+-- ③ 스냅샷 이후의 메시지만 읽어 상태에 다시 적용한다
+SELECT * FROM messages WHERE session_id = ? AND seq BETWEEN ? AND ? ORDER BY seq;
+```
+
+| 단계 | 쓰는 인덱스 | 이유 |
+|---|---|---|
+| ① 마지막 번호 | `idx_messages_session_received` | 시각 기준으로 범위를 찾는다. |
+| ② 스냅샷 | `snapshots` PK `(session_id, seq)` | 기준 번호 바로 앞의 스냅샷 한 건을 찾는다. |
+| ③ 다시 적용 | `uk_messages_session_seq` | 스냅샷 이후 구간만 읽는다. |
+
+**느려질 수 있는 곳**
+- 스냅샷이 없으면 처음부터 모든 메시지를 다시 계산해야 한다. 그래서 입장·퇴장·종료 때와 100개마다 스냅샷을 남긴다. 다시 계산하는 메시지는 많아야 99개다.
+- ①은 그 시각 이전 메시지를 모두 훑는다. 세션당 메시지가 수천 개 수준이면 괜찮지만, 아주 긴 세션의 복원이 느려지면 인덱스를 `(session_id, received_at, seq)`로 바꾼다(미적용).
