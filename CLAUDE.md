@@ -57,16 +57,19 @@ NestJS 11 기준이다. `@nestjs/*` 패키지를 추가할 때는 11과 호환�
 - 테이블: `sessions`, `participants`, `messages`, `snapshots`. 모든 이벤트는 `messages`에 시스템 메시지로 함께 저장한다.
 - 이벤트 타입: `SESSION_CREATED`, `PARTICIPANT_JOINED`, `PARTICIPANT_LEFT`, `MESSAGE_CREATED`, `PRESENCE_ONLINE`, `PRESENCE_OFFLINE`, `SESSION_ENDED`
 
-## 모듈 구성 (예정)
+## 모듈 구성
 
 ```
 src/
-  session/      SessionController, 세션 조회/목록, 상태 reducer
+  session/      SessionController(REST 전체), 세션 생성/참여/이벤트/종료/목록/누락 조회, 상태 reducer
   event/        EventService(단일 쓰기 경로), 이벤트 엔티티/리포지토리
   projection/   스냅샷, 타임라인 복원
-  realtime/     ChatGateway(구독, presence), Broadcaster(전달만 담당)
+  realtime/     ChatGateway(구독, presence), PresenceTracker(구독 수),
+                BroadcastModule: Broadcaster(전달만 담당), SessionQueue(세션별 저장·전달 순서)
   common/       에러 코드, 사용자 식별, 공통 DTO
 ```
+
+- `BroadcastModule`은 `SessionModule`과 `RealtimeModule`이 함께 쓴다. `RealtimeModule`이 `SessionModule`을 가져오므로 순환을 피하려고 분리했다.
 
 ## 코딩 규칙
 

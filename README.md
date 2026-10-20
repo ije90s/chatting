@@ -43,7 +43,7 @@ docker compose down -v   # MariaDB 중지 + 데이터 삭제
 | 런타임 | Node.js 20 이상 |
 | DB | MariaDB 11.4 (Docker), InnoDB, utf8mb4, UTC |
 | ORM | TypeORM (스키마는 마이그레이션으로 관리, `synchronize` 미사용) |
-| 실시간 | socket.io (namespace `/chat`) |
+| 실시간 | socket.io (namespace `/chat`, handshake `auth.userId`) |
 | API 문서 | OpenAPI (`@nestjs/swagger`) |
 
 **환경 변수** (`.env`)
@@ -107,9 +107,11 @@ src/<domain>/
 
 ### 쓰기 경로와 실시간 전달
 
-- 메시지, join, leave, end 등 쓰기는 REST로만 받는다. socket은 커밋된 이벤트를 전달하는 수신 채널이다.
-- 예외는 presence다. socket 구독 시 `PRESENCE_ONLINE`, 해당 세션 연결이 모두 끊기면 `PRESENCE_OFFLINE`을 저장한다.
-- 모든 이벤트 저장은 `EventService` 한 곳에서 하고, broadcast는 커밋 후에 한다.
+- 메시지, join, leave, end 등 쓰기는 REST로만 받는다. socket(`/chat`)은 커밋된 이벤트를 전달하는 수신 채널이다.
+- 예외는 presence다. 사용자의 세션 첫 구독 시 `PRESENCE_ONLINE`, 마지막 구독이 끝나면(구독 해제 또는 연결 끊김) `PRESENCE_OFFLINE`을 저장한다. 서버 시작 시 `ONLINE`으로 남은 참여자는 `OFFLINE`으로 정리한다.
+- 모든 이벤트 저장은 `EventService` 한 곳에서 하고, broadcast는 커밋 후에 한다. 중복 요청은 broadcast하지 않는다.
+- 같은 세션의 "저장 → 커밋 → broadcast"를 세션별 큐에서 하나씩 실행해, 연결 중인 클라이언트는 이벤트를 seq 순서로 받는다.
+- 끊긴 동안의 이벤트는 다시 보내지 않는다. 클라이언트는 seq 빈칸을 발견하거나 재접속하면 `GET /sessions/{id}/events?afterSeq=`(참여자만)로 채운다.
 
 ### 세션 규칙
 
@@ -120,4 +122,5 @@ src/<domain>/
 ### 범위에서 제외한 것
 
 - 인증/인가: `X-User-Id` 헤더로 임시 식별하며, 사용자 테이블을 두지 않는다.
-- 세션 생성 요청의 중복 방지, 이벤트 조회 API, 다중 인스턴스 presence 관리는 이후 검토한다.
+- 세션 생성 요청의 중복 방지는 이후 검토한다.
+- 다중 인스턴스: 실시간 계층(room, presence 구독 수, broadcast 순서)은 서버 한 대 기준이다. 수평 확장 시 바꿀 부분은 [docs/api.md](docs/api.md) "단일 인스턴스 제약"에 정리했다(Redis adapter 등).

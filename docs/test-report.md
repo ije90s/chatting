@@ -16,7 +16,7 @@
 
 ## 최신 결과 요약
 
-기준: 2026-10-20, 7단계 전체 흐름 e2e 완료
+기준: 2026-10-20, 7단계 완료 (전체 투두 완료)
 
 | 종류 | 결과 |
 |---|---|
@@ -27,8 +27,27 @@
 
 ### 커버리지 (핵심 로직)
 
-| 파일 | 단위 라인 | 단위 분기 | 통합 라인 | 비고 |
-|---|---|---|---|---|
+| 파일 | 단위 라인 | 단위 분기 | 비고 |
+|---|---|---|---|
+| `session/session.reducer.ts` | 100% | 98% | 남은 분기: 참여 시각이 같을 때 userId 정렬 |
+| `event/event.service.ts` | 100% | 94% | 남은 분기: 방어 코드(`?? JOIN`, presence 외 분기) |
+| `projection/snapshot-policy.ts` | 100% | 100% | |
+| `projection/projection.service.ts` | 100% | 90% | |
+| `session/session.service.ts` | 98% | 89% | 남은 라인: 저장 직후 세션을 못 찾는 방어 코드 |
+| `session/session-cursor.ts` | 100% | 100% | |
+| `realtime/session-queue.ts` | 100% | 100% | |
+| `realtime/presence-tracker.ts` | 100% | 100% | |
+| `realtime/broadcaster.ts` | 100% | 75% | 남은 분기: Error가 아닌 값이 던져진 경우의 로그 |
+| `realtime/chat.gateway.ts` | 95% | 82% | `afterInit`, `handleConnection`은 e2e에서 실행 |
+| `realtime/socket-auth.ts` | 100% | 100% | |
+| `common/errors/http-exception.filter.ts` | 84% | 80% | `catch()`의 응답 쓰기는 e2e에서 실행 |
+| `common/pipes/validation.pipe.ts` | 100% | 75% | |
+| `common/decorators/user-id.decorator.ts` | 93% | 100% | 파라미터 데코레이터 본체는 e2e에서 실행 |
+
+- 레포지토리(쿼리)와 요청 DTO 검증(`append-event.dto.ts` 등)은 단위에서 mock하거나 실행하지 않고, 통합/e2e 테스트에서 실제 DB와 HTTP로 검증한다.
+- 전체(`All files`) 단위 라인 커버리지는 69%다. 마이그레이션, 모듈, 설정, Swagger DTO처럼 단위 테스트 대상이 아닌 파일이 포함된 수치다.
+
+---|---|---|---|---|
 | `session/session.reducer.ts` | 100% | 98% | — | 남은 분기: 참여 시각이 같을 때 userId 정렬 |
 | `event/event.service.ts` | 100% | 94% | — | 남은 분기: 방어 코드(`?? JOIN`, presence 외 분기) |
 | `event/event.repository.ts` | 35% | 0% | **100%** | 단위에서는 mock, 쿼리는 통합 테스트에서 실행 |
@@ -311,3 +330,9 @@ e2e (실제 테스트 DB):
 9. 목록: `participantId`·`status` 필터로 최종 상태(`END`, `lastSeq` 10, 잘라 저장한 제목)를 받는다.
 10. 타임라인: seq 3(참여 직후), 8(메시지 3건, 둘 다 ONLINE), 9(LEAVE, 나간 시각), 마지막(END) 시점의 상태가 맞다.
 11. 연결을 끊으면 `PRESENCE_OFFLINE` 2건(seq 11, 12)이 남고 복원 결과에서 둘 다 OFFLINE이다.
+
+### 구현과 문서 일치 확인 — 테스트 없음
+- OpenAPI(코드에서 생성)와 `docs/api.md`의 엔드포인트 7개, 파라미터, 응답 코드가 일치한다.
+- 에러 코드(`error-code.ts`)와 `docs/api.md` 에러 표가 일치한다(9개, HTTP 상태 포함).
+- 테스트 DB의 `SHOW CREATE TABLE`과 `docs/db.md` DDL이 일치한다(MariaDB에서 `JSON`은 `LONGTEXT` + `JSON_VALID` CHECK로 표시).
+- 문서를 구현에 맞게 고친 것: presence payload(`{ socketId, reason }` → `{}`), 2명 제한 검사 방식, 이벤트 타입 표의 presence 발생 경로, `session:event` 설명, 순서 처리 기준(클라이언트 정렬 → 서버 seq 순서 전달 + 누락 조회), README 쓰기 경로·범위 제외 항목, CLAUDE.md 모듈 구성.

@@ -74,7 +74,8 @@ CREATE TABLE participants (
 ```
 
 - `idx_participants_user`는 `GET /sessions?participantId=` 필터에 사용한다.
-- 2명 제한은 세션 행 잠금 아래에서 `participant_count`로 검사한다.
+- `presence`, `presence_at`은 마지막 presence 이벤트의 결과다. 서버 시작 시 `presence = 'ONLINE'`인 행마다 `PRESENCE_OFFLINE`을 저장해 정리한다(단일 인스턴스 기준).
+- 2명 제한은 세션 행 잠금 아래에서 reducer가 참여자 수(`participants` 행으로 만든 상태)로 검사한다. `participant_count`는 목록 조회용 프로젝션이다.
 
 ### `messages`
 
@@ -111,6 +112,7 @@ CREATE TABLE messages (
 
 - `type`은 이벤트 종류가 늘어날 것을 고려해 `ENUM` 대신 `VARCHAR`로 두고 애플리케이션에서 검증한다.
 - 이 테이블에는 `UPDATE`, `DELETE`를 하지 않는다.
+- `uk_messages_session_seq`는 타임라인 복원(스냅샷 이후 이벤트)과 누락 조회(`GET /sessions/{id}/events?afterSeq=`)의 범위 조회에도 쓰인다.
 - TypeORM은 MariaDB의 CHECK 제약을 생성하지 않으므로 `chk_messages_payload`는 마이그레이션에 직접 작성했다.
 
 **타입별 payload**
@@ -121,9 +123,11 @@ CREATE TABLE messages (
 | `PARTICIPANT_JOINED` | `{}` |
 | `PARTICIPANT_LEFT` | `{}` |
 | `MESSAGE_CREATED` | `{ "content": "..." }` |
-| `PRESENCE_ONLINE` | `{ "socketId": "..." }` |
-| `PRESENCE_OFFLINE` | `{ "socketId": "...", "reason": "transport close" }` |
+| `PRESENCE_ONLINE` | `{}` |
+| `PRESENCE_OFFLINE` | `{}` |
 | `SESSION_ENDED` | `{}` |
+
+- presence는 소켓 단위가 아니라 사용자·세션 단위로 기록한다(여러 탭 중 첫 구독과 마지막 구독 종료). 그래서 `socketId`나 끊김 사유를 담지 않는다.
 
 ### `snapshots`
 

@@ -11,7 +11,7 @@
 | 단일 쓰기 서비스 | REST Controller와 Socket Gateway는 모두 `EventService`를 통해서만 이벤트를 저장한다. |
 | 순서 기준은 seq | 서버가 세션별로 부여하는 `seq`가 유일한 정식 순서다. 클라이언트 시각은 참고용이다. |
 | 중복 방지 | 클라이언트가 보내는 `clientEventId`로 같은 이벤트가 두 번 저장되지 않게 한다. |
-| 커밋 후 전달 | 트랜잭션 커밋이 끝난 뒤에 broadcast한다. |
+| 커밋 후 전달 | 트랜잭션 커밋이 끝난 뒤에 broadcast한다. 같은 세션의 이벤트는 seq 순서로 전달한다. |
 
 ## 2. 공통 규칙
 
@@ -94,8 +94,8 @@ JOIN ──(leave)──▶ LEAVE
 | `PARTICIPANT_JOINED` | `POST /sessions` (생성자), `POST /sessions/{id}/join` | 없음 |
 | `PARTICIPANT_LEFT` | `POST /sessions/{id}/events` | `JOIN` → `LEAVE` |
 | `MESSAGE_CREATED` | `POST /sessions/{id}/events` | 없음 |
-| `PRESENCE_ONLINE` | socket 구독 시작 | 없음 |
-| `PRESENCE_OFFLINE` | socket 연결 끊김 | 없음 |
+| `PRESENCE_ONLINE` | 사용자의 세션 첫 구독(`session:subscribe`) | 없음 |
+| `PRESENCE_OFFLINE` | 사용자의 세션 마지막 구독 종료(`session:unsubscribe` 또는 연결 끊김), 서버 시작 시 정리 | 없음 |
 | `SESSION_ENDED` | `POST /sessions/{id}/end` | → `END` |
 
 재연결은 별도 타입을 두지 않는다. `PRESENCE_OFFLINE` 뒤에 오는 `PRESENCE_ONLINE`이 재연결이다.
@@ -345,7 +345,7 @@ REST 응답과 socket 전달에서 같은 형식을 사용한다.
 |---|---|---|---|
 | 클라이언트 → 서버 | `session:subscribe` | `{ sessionId }` | room `session:{id}`에 들어간다. 참여 기록이 있는 사용자만 가능하다(나간 참여자 포함). |
 | 클라이언트 → 서버 | `session:unsubscribe` | `{ sessionId }` | room에서 나간다. 구독하지 않은 세션이어도 성공이다. |
-| 서버 → 클라이언트 | `session:event` | 이벤트 공통 형식 | 커밋된 모든 이벤트 |
+| 서버 → 클라이언트 | `session:event` | 이벤트 공통 형식 | 새로 저장된 모든 이벤트 (seq 순서) |
 | 서버 → 클라이언트 | `session:error` | `{ success: false, code, message }` | 구독 실패 등 |
 
 **`session:event` 전달**
@@ -388,4 +388,5 @@ REST 응답과 socket 전달에서 같은 형식을 사용한다.
 - 정식 순서는 서버가 세션별로 부여하는 `seq`다. 세션 행을 잠근 뒤 `last_seq + 1`을 부여하므로 동시 요청도 순서대로 직렬화된다.
 - `clientSentAt`은 정렬과 복원에 쓰지 않는다(클라이언트 시계는 기기마다 다르다).
 - 늦게 도착한 이벤트(오프라인 중 작성 등)는 도착 순서대로 seq를 받는다. 과거 순서에 끼워 넣지 않는다.
-- 클라이언트는 받은 이벤트를 seq 순으로 정렬해 표시한다.
+- 같은 세션의 broadcast는 seq 순서로 나가므로, 연결 중인 클라이언트는 받은 순서대로 표시하면 된다.
+- 받은 seq가 마지막 seq + 1이 아니거나 재접속하면 `GET /sessions/{id}/events?afterSeq=`로 빠진 이벤트를 채운다. 조회 결과와 socket 이벤트가 겹치면 seq로 거른다.
