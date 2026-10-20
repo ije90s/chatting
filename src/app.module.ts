@@ -5,6 +5,7 @@ import { AppService } from './app.service';
 import { CommonModule } from './common/common.module';
 import { DatabaseModule } from './database/database.module';
 import { EventModule } from './event/event.module';
+import { MetricsModule } from './metrics/metrics.module';
 import { ProjectionModule } from './projection/projection.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { SessionModule } from './session/session.module';
@@ -14,6 +15,7 @@ import { SessionModule } from './session/session.module';
     ConfigModule.forRoot({ isGlobal: true }),
     DatabaseModule,
     CommonModule,
+    MetricsModule,
     EventModule,
     ProjectionModule,
     SessionModule,

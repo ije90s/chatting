@@ -47,3 +47,9 @@
 
 - [x] e2e 테스트: 생성 → 참여 → 메시지(재전송 중복 포함) → 나가기/종료 → 타임라인 복원
 - [x] 구현과 문서(api.md, db.md, README) 일치 확인
+
+## 8. 관측성 (로그: NestJS `Logger` 유지, 메트릭: Prometheus)
+
+- [x] `GET /metrics`: `prom-client`, `MetricsModule`, Prometheus 텍스트 응답(응답 래핑·`X-User-Id` 예외), 기본 Node 메트릭, HTTP 요청 지연
+- [ ] 도메인 메트릭: 이벤트 저장 결과·지연, broadcast 실패, 소켓 연결 수, 세션 큐 대기 작업 수 — 유닛 테스트
+- [ ] Prometheus를 docker compose에 추가(수집 설정), README·api.md 갱신

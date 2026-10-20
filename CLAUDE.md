@@ -7,6 +7,7 @@
 - TypeScript, NestJS
 - MariaDB (Docker로 실행), TypeORM
 - socket.io
+- 로그: NestJS `Logger`, 메트릭: Prometheus (`prom-client`)
 - OpenAPI (`@nestjs/swagger`)
 
 ## 문서
@@ -66,6 +67,7 @@ src/
   projection/   스냅샷, 타임라인 복원
   realtime/     ChatGateway(구독, presence), PresenceTracker(구독 수),
                 BroadcastModule: Broadcaster(전달만 담당), SessionQueue(세션별 저장·전달 순서)
+  metrics/      MetricsModule(전역): Prometheus Registry, GET /metrics, HTTP 지연 미들웨어
   common/       에러 코드, 사용자 식별, 공통 DTO
 ```
 
@@ -79,7 +81,7 @@ src/
 - 시각은 UTC로 다루고 DB에는 `DATETIME(3)`으로 저장한다.
 - 엔티티는 각 도메인 모듈의 `entities/*.entity.ts`에 두고 `TypeOrmModule.forFeature()`로 등록한다(`autoLoadEntities`).
 - 스키마는 TypeORM 마이그레이션으로만 바꾼다(`synchronize: false`). 엔티티를 바꾸면 마이그레이션을 생성하고 `docs/db.md`도 함께 고친다.
-- 응답은 성공 `{ success: true, data }`, 실패 `{ success: false, code, message }`로 통일한다. 에러 코드는 `docs/api.md`의 목록을 따른다.
+- 응답은 성공 `{ success: true, data }`, 실패 `{ success: false, code, message }`로 통일한다. 에러 코드는 `docs/api.md`의 목록을 따른다. 예외는 운영용 `GET /metrics`(Prometheus 텍스트, `@RawResponse()`, `X-User-Id` 불필요) 하나뿐이다.
 - 모든 REST 엔드포인트에 OpenAPI 데코레이터로 요청/응답 스키마를 명시한다.
 - 핵심 로직은 유닛 테스트로 검증한다. reducer, 중복 처리, seq 부여, 스냅샷 기록 조건, 타임라인 복원은 반드시 테스트를 작성한다.
 

@@ -33,7 +33,7 @@ X-User-Id: user-a
 
 ### 응답 형식
 
-모든 REST 응답은 아래 두 형식 중 하나다. 성공 여부는 `success`로 구분하고, 결과의 종류(신규/중복 등)는 HTTP 상태 코드로 구분한다.
+모든 REST 응답은 아래 두 형식 중 하나다(운영용 `GET /metrics`만 예외, 7장). 성공 여부는 `success`로 구분하고, 결과의 종류(신규/중복 등)는 HTTP 상태 코드로 구분한다.
 
 **성공**
 ```json
@@ -149,6 +149,7 @@ REST 응답과 socket 전달에서 같은 형식을 사용한다.
 | `GET /sessions` | 세션 목록 조회 (기간/상태/참여자 필터) |
 | `GET /sessions/{id}/events?afterSeq=` | 이벤트 조회 (누락 복구) |
 | `GET /sessions/{id}/timeline?at=` | 특정 시점 상태 복원 |
+| `GET /metrics` | Prometheus 메트릭 (운영용, 7장) |
 
 ### `POST /sessions` 세션 생성
 
@@ -390,3 +391,21 @@ REST 응답과 socket 전달에서 같은 형식을 사용한다.
 - 늦게 도착한 이벤트(오프라인 중 작성 등)는 도착 순서대로 seq를 받는다. 과거 순서에 끼워 넣지 않는다.
 - 같은 세션의 broadcast는 seq 순서로 나가므로, 연결 중인 클라이언트는 받은 순서대로 표시하면 된다.
 - 받은 seq가 마지막 seq + 1이 아니거나 재접속하면 `GET /sessions/{id}/events?afterSeq=`로 빠진 이벤트를 채운다. 조회 결과와 socket 이벤트가 겹치면 seq로 거른다.
+
+## 7. 운영 (메트릭)
+
+로그는 NestJS `Logger`로 stdout에 남기고, 메트릭은 Prometheus가 `GET /metrics`를 수집한다. 분산 추적은 두지 않는다.
+
+### `GET /metrics` Prometheus 메트릭
+
+- Prometheus 텍스트 형식(`text/plain; version=0.0.4`)으로 돌려준다. 공통 응답 형식(`{ success, data }`)으로 감싸지 않는다.
+- `X-User-Id`를 요구하지 않는다. 외부에 공개하지 않고 내부망에서 Prometheus만 접근하는 것을 전제로 한다.
+- 메트릭은 프로세스별이다. 서버가 여러 대면 Prometheus가 각 인스턴스를 직접 수집하고 `instance` 라벨로 구분한다.
+
+| 메트릭 | 종류 | 라벨 | 설명 |
+|---|---|---|---|
+| `http_request_duration_seconds` | histogram | `method`, `route`, `status` | REST 요청 처리 시간. `route`는 라우트 패턴(`/sessions/:id/join`)이고, 매칭되지 않은 경로는 `unmatched`로 묶는다. `/metrics` 자체는 기록하지 않는다. |
+| `process_*`, `nodejs_*` | — | — | `prom-client` 기본 메트릭 (CPU, 메모리, 이벤트 루프 지연, GC) |
+
+- 세션 ID, 사용자 ID처럼 값이 계속 늘어나는 값은 라벨로 쓰지 않는다.
+

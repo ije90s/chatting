@@ -16,13 +16,13 @@
 
 ## 최신 결과 요약
 
-기준: 2026-10-20, 7단계 완료 (전체 투두 완료)
+기준: 2026-10-20, 8단계 진행 중 (`GET /metrics` 완료)
 
 | 종류 | 결과 |
 |---|---|
-| 단위 | 162 / 162 통과 (15개 파일) |
+| 단위 | 170 / 170 통과 (18개 파일) |
 | 통합 | 13 / 13 통과 (2개 파일) |
-| e2e | 112 / 112 통과 (4개 파일) |
+| e2e | 115 / 115 통과 (5개 파일) |
 | lint, build | 통과 |
 
 ### 커버리지 (핵심 로직)
@@ -336,3 +336,14 @@ e2e (실제 테스트 DB):
 - 에러 코드(`error-code.ts`)와 `docs/api.md` 에러 표가 일치한다(9개, HTTP 상태 포함).
 - 테스트 DB의 `SHOW CREATE TABLE`과 `docs/db.md` DDL이 일치한다(MariaDB에서 `JSON`은 `LONGTEXT` + `JSON_VALID` CHECK로 표시).
 - 문서를 구현에 맞게 고친 것: presence payload(`{ socketId, reason }` → `{}`), 2명 제한 검사 방식, 이벤트 타입 표의 presence 발생 경로, `session:event` 설명, 순서 처리 기준(클라이언트 정렬 → 서버 seq 순서 전달 + 누락 조회), README 쓰기 경로·범위 제외 항목, CLAUDE.md 모듈 구성.
+
+## 8단계. 관측성
+
+### `GET /metrics` — 단위 8, e2e 3
+- `ResponseInterceptor`: 일반 핸들러는 `{ success: true, data }`로 감싸고, `@RawResponse()` 핸들러는 반환값을 그대로 둔다.
+- `routeOf`: 매칭된 요청은 라우트 패턴(`/sessions/:id/join`), 매칭되지 않은 요청은 `unmatched`.
+- `HttpMetricsMiddleware`: 응답이 끝난 뒤(`finish`)에만 `method`·`route`·`status`로 기록하고, `/metrics` 요청은 기록하지 않는다.
+- `MetricsService`: 기본 Node 메트릭과 HTTP histogram을 Prometheus 텍스트로 내보내고, 인스턴스마다 Registry가 따로 있어 여러 번 만들어도 충돌하지 않는다.
+- e2e: `X-User-Id` 없이 `200 text/plain`, 공통 형식으로 감싸지 않는다. `/sessions/{서로 다른 id}/events` 401 두 건이 `route="/sessions/:id/events"` 한 시계열로 2가 되고, 없는 경로 404는 `route="unmatched"`, 요청 경로 원문(세션 ID)은 라벨에 나타나지 않는다. `GET /`는 여전히 공통 형식이다.
+- 변이 검증: `@RawResponse()` 확인을 끄면 단위 1건 실패, 라벨을 요청 경로 원문(`originalUrl`)으로 바꾸면 e2e 1건 실패.
+
