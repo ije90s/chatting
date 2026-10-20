@@ -792,4 +792,173 @@ describe('Sessions (e2e)', () => {
       expect((res.body as ListBody).code).toBe('UNAUTHORIZED');
     });
   });
+
+  describe('GET /sessions/{id}/timeline', () => {
+    interface TimelineBody {
+      success: boolean;
+      code?: string;
+      data: {
+        sessionId: string;
+        at: string;
+        seq: number;
+        state: {
+          status: string;
+          participants: { userId: string; leftAt: string | null }[];
+          messageCount: number;
+          lastMessage: { seq: number; content: string } | null;
+        };
+      };
+    }
+
+    function timeline(sessionId: string, at: string) {
+      return http()
+        .get(`/sessions/${sessionId}/timeline`)
+        .set('X-User-Id', 'user-a')
+        .query({ at });
+    }
+
+    async function receivedAtOf(sessionId: string, seq: number) {
+      const [row] = await dataSource.query<{ received_at: Date }[]>(
+        'SELECT received_at FROM messages WHERE session_id = ? AND seq = ?',
+        [sessionId, seq],
+      );
+      return row.received_at.toISOString();
+    }
+
+    it('각 이벤트 시각의 상태를 복원한다', async () => {
+      const sessionId = await createWithTwo(); // seq 1~3
+      await sendMessage(sessionId, 'user-a', '첫 메시지').expect(201); // 4
+      await sendMessage(sessionId, 'user-b', '두 번째').expect(201); // 5
+      await leave(sessionId, 'user-b'); // 6
+      await end(sessionId, 'user-a'); // 7
+
+      const expected: Record<
+        number,
+        {
+          status: string;
+          users: string[];
+          count: number;
+          last: string | null;
+          left: boolean;
+        }
+      > = {
+        // seq 2는 생성자만 참여한 상태다.
+        2: {
+          status: 'JOIN',
+          users: ['user-a'],
+          count: 0,
+          last: null,
+          left: false,
+        },
+        5: {
+          status: 'JOIN',
+          users: ['user-a', 'user-b'],
+          count: 2,
+          last: '두 번째',
+          left: false,
+        },
+        6: {
+          status: 'LEAVE',
+          users: ['user-a', 'user-b'],
+          count: 2,
+          last: '두 번째',
+          left: true,
+        },
+        7: {
+          status: 'END',
+          users: ['user-a', 'user-b'],
+          count: 2,
+          last: '두 번째',
+          left: true,
+        },
+      };
+      for (const [seq, want] of Object.entries(expected)) {
+        const at = await receivedAtOf(sessionId, Number(seq));
+        const res = await timeline(sessionId, at).expect(200);
+        const { data } = res.body as TimelineBody;
+        // 같은 밀리초에 저장된 이벤트가 있으면 그중 가장 큰 seq가 기준이다.
+        expect(data.seq).toBeGreaterThanOrEqual(Number(seq));
+        if (data.seq !== Number(seq)) {
+          continue;
+        }
+        expect(data).toMatchObject({ sessionId, at, seq: Number(seq) });
+        expect(data.state.status).toBe(want.status);
+        expect(data.state.messageCount).toBe(want.count);
+        expect(data.state.lastMessage?.content ?? null).toBe(want.last);
+        expect(data.state.participants.map((p) => p.userId)).toEqual(
+          want.users,
+        );
+        const userB = data.state.participants.find(
+          (p) => p.userId === 'user-b',
+        );
+        expect((userB?.leftAt ?? null) !== null).toBe(want.left);
+      }
+    });
+
+    it('마지막 이벤트 이후 시각은 현재 상태, 같은 at은 같은 결과다', async () => {
+      const sessionId = await createWithTwo();
+      await sendMessage(sessionId, 'user-a', '안녕').expect(201);
+      const at = '2999-01-01T00:00:00.000Z';
+
+      const first = await timeline(sessionId, at).expect(200);
+      const again = await timeline(sessionId, at).expect(200);
+      expect((again.body as TimelineBody).data).toEqual(
+        (first.body as TimelineBody).data,
+      );
+      expect((first.body as TimelineBody).data).toMatchObject({
+        at,
+        seq: 4,
+        state: { status: 'JOIN', messageCount: 1 },
+      });
+    });
+
+    it('시간대가 붙은 at은 UTC로 바꿔 돌려준다', async () => {
+      const sessionId = await createSession();
+      const res = await timeline(
+        sessionId,
+        '2999-01-01T09:00:00.000+09:00',
+      ).expect(200);
+      expect((res.body as TimelineBody).data.at).toBe(
+        '2999-01-01T00:00:00.000Z',
+      );
+    });
+
+    it('세션 생성 이전 시각과 없는 세션은 404 SESSION_NOT_FOUND', async () => {
+      const sessionId = await createSession();
+      const before = await timeline(
+        sessionId,
+        '2000-01-01T00:00:00.000Z',
+      ).expect(404);
+      expect((before.body as TimelineBody).code).toBe('SESSION_NOT_FOUND');
+
+      const missing = await timeline(
+        '0192a3b4-0000-7000-8000-000000000000',
+        '2999-01-01T00:00:00.000Z',
+      ).expect(404);
+      expect((missing.body as TimelineBody).code).toBe('SESSION_NOT_FOUND');
+    });
+
+    it.each([
+      ['at 없음', {}],
+      ['ISO-8601이 아닌 at', { at: '2026/10/19' }],
+      ['정의되지 않은 파라미터', { at: '2999-01-01T00:00:00.000Z', seq: 1 }],
+    ])('%s은 400 VALIDATION_ERROR', async (_name, query) => {
+      const sessionId = await createSession();
+      const res = await http()
+        .get(`/sessions/${sessionId}/timeline`)
+        .set('X-User-Id', 'user-a')
+        .query(query)
+        .expect(400);
+      expect((res.body as TimelineBody).code).toBe('VALIDATION_ERROR');
+    });
+
+    it('X-User-Id가 없으면 401 UNAUTHORIZED', async () => {
+      const sessionId = await createSession();
+      const res = await http()
+        .get(`/sessions/${sessionId}/timeline`)
+        .query({ at: '2999-01-01T00:00:00.000Z' })
+        .expect(401);
+      expect((res.body as TimelineBody).code).toBe('UNAUTHORIZED');
+    });
+  });
 });

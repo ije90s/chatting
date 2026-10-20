@@ -17,17 +17,23 @@ import {
 import { UserId } from '../common/decorators/user-id.decorator';
 import { ErrorCode } from '../common/errors/error-code';
 import { EventDto } from '../event/dto/event.dto';
+import { TimelineDto } from '../projection/dto/timeline.dto';
+import { ProjectionService } from '../projection/projection.service';
 import { AppendEventDto } from './dto/append-event.dto';
 import { CreateSessionDto } from './dto/create-session.dto';
 import { ListSessionsQueryDto, SessionListDto } from './dto/list-sessions.dto';
 import { SessionDto } from './dto/session.dto';
+import { TimelineQueryDto } from './dto/timeline-query.dto';
 import { SessionService } from './session.service';
 
 @ApiTags('sessions')
 @ApiSecurity('user-id')
 @Controller('sessions')
 export class SessionController {
-  constructor(private readonly sessionService: SessionService) {}
+  constructor(
+    private readonly sessionService: SessionService,
+    private readonly projectionService: ProjectionService,
+  ) {}
 
   @Post()
   @ApiOperation({
@@ -59,6 +65,28 @@ export class SessionController {
     @Query() query: ListSessionsQueryDto,
   ): Promise<SessionListDto> {
     return this.sessionService.list(query);
+  }
+
+  @Get(':id/timeline')
+  @ApiOperation({
+    summary: '특정 시점 상태 복원',
+    description:
+      'receivedAt ≤ at인 마지막 이벤트까지 적용한 상태를 돌려준다. 같은 at은 언제 조회해도 같은 결과다.',
+  })
+  @ApiSuccessResponse(TimelineDto)
+  @ApiErrorResponse(HttpStatus.BAD_REQUEST, ErrorCode.VALIDATION_ERROR)
+  @ApiErrorResponse(HttpStatus.UNAUTHORIZED, ErrorCode.UNAUTHORIZED)
+  @ApiErrorResponse(HttpStatus.NOT_FOUND, ErrorCode.SESSION_NOT_FOUND)
+  // 조회 범위는 GET /sessions와 같이 전체 세션이다.
+  timeline(
+    @UserId() _userId: string,
+    @Param('id') sessionId: string,
+    @Query() query: TimelineQueryDto,
+  ): Promise<TimelineDto> {
+    return this.projectionService.restoreTimeline(
+      sessionId,
+      new Date(query.at),
+    );
   }
 
   @Post(':id/join')

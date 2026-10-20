@@ -32,7 +32,7 @@
 - [x] `POST /sessions/{id}/events`: 메시지, 나가기
 - [x] `POST /sessions/{id}/end`
 - [x] `GET /sessions`: 상태/참여자/기간 필터, 커서 페이지네이션
-- [ ] `GET /sessions/{id}/timeline?at=`
+- [x] `GET /sessions/{id}/timeline?at=`
 
 ## 6. realtime (socket.io)
 
