@@ -312,7 +312,7 @@ REST 응답과 socket 전달에서 같은 형식을 사용한다.
 2. 기준 seq 이하의 가장 최근 스냅샷을 불러온다. 없으면 빈 상태에서 시작한다.
 3. 스냅샷 이후 이벤트를 seq 순으로 reducer에 적용한다.
 
-같은 `at`으로 언제 조회해도 같은 결과가 나와야 한다.
+같은 `at`으로 언제 조회해도 같은 결과가 나와야 한다. 설계와 예시는 [state-restore.md](./state-restore.md)에 정리했다.
 
 **Response 200** (`data`)
 ```json
@@ -369,20 +369,9 @@ REST 응답과 socket 전달에서 같은 형식을 사용한다.
 - presence 저장이 실패해도 구독 결과는 바뀌지 않고 서버 로그만 남는다.
 - 구독 상태는 서버 메모리에서 센다(단일 인스턴스 기준). 재시작하면 사라지므로, 서버는 연결을 받기 전에 `ONLINE`으로 남은 참여자마다 `PRESENCE_OFFLINE`을 저장한다.
 
-**단일 인스턴스 제약 (수평 확장 시)**
+**단일 인스턴스 제약**
 
-현재 실시간 계층은 서버 한 대를 전제로 한다. 여러 대로 늘리면 아래 세 가지를 바꿔야 한다. seq 부여, 중복 방지, 상태 전이는 DB 행 잠금과 UNIQUE 제약으로 처리하므로 영향이 없다.
-
-| 대상 | 현재 | 여러 대일 때 문제 | 바꿀 방향 |
-|---|---|---|---|
-| broadcast | socket.io room이 프로세스 메모리에 있다 | 다른 서버에 연결된 구독자는 이벤트를 받지 못한다 | socket.io adapter로 서버 간 emit을 중계한다. MariaDB용 adapter는 없으므로 Redis adapter를 쓴다. |
-| presence 구독 수 | 사용자·세션별 구독 소켓 수를 프로세스 메모리에서 센다 | 다른 서버에 남은 탭을 몰라 OFFLINE을 잘못 저장한다 | Redis 공유 카운터, 또는 adapter의 `fetchSockets()`로 전체 서버의 구독 여부를 확인한다. |
-| broadcast 순서 | 세션별 큐가 프로세스 메모리에 있다 | 같은 세션의 요청이 여러 서버로 나뉘면 서버 간 전달 순서가 seq와 어긋날 수 있다 | 세션 ID로 요청을 한 서버에 모으거나(라우팅), 순서 있는 스트림(Redis Streams 등)으로 전달한다. 클라이언트의 누락 조회로 보완한다. |
-| 시작 시 presence 정리 | 시작할 때 `ONLINE`인 참여자를 모두 `OFFLINE`으로 기록한다 | 한 대만 재시작해도 다른 서버의 정상 연결까지 `OFFLINE`이 된다 | 연결마다 서버 ID를 기록해 자기 서버의 연결만 정리하거나, TTL·하트비트로 응답이 끊긴 연결만 정리한다. |
-
-- Redis 하나를 추가하면 broadcast와 presence 구독 수를 함께 해결할 수 있다.
-- broadcast는 `Broadcaster`를 통해서만 내보내므로, adapter를 붙여도 이벤트 저장 코드는 바뀌지 않는다.
-- socket.io의 HTTP long-polling을 쓰려면 로드 밸런서에 sticky session이 필요하다. WebSocket 전송만 쓰면 필요 없다.
+현재 실시간 계층(room, presence 구독 수, 세션 큐, 부팅 시 presence 정리)은 프로세스 메모리를 쓰므로 서버 한 대를 전제로 한다. seq 부여, 중복 방지, 상태 전이는 DB 행 잠금과 UNIQUE 제약으로 처리하므로 서버 수와 무관하다. 수평 확장 시 바꿀 부분과 Redis 활용 방식은 [operations.md](./operations.md) 2장에 정리했다.
 
 ## 6. 순서 처리 기준
 

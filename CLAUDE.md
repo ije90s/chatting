@@ -14,6 +14,8 @@
 
 - [docs/api.md](docs/api.md): REST API, 응답 형식, 세션 상태와 이벤트
 - [docs/db.md](docs/db.md): 테이블 설계
+- [docs/state-restore.md](docs/state-restore.md): 이벤트 기반 상태 복원 설계와 구현 결과 (reducer, 스냅샷, 타임라인)
+- [docs/operations.md](docs/operations.md): 운영 설계 시나리오(미구현). 재연결 정합성, 수평 확장(AWS·Redis), 관측 가능성, 장애 대응
 - [docs/todo.md](docs/todo.md): 구현 순서 투두. 이 순서대로 작업하고, 끝난 항목은 체크한다.
 - [docs/test-report.md](docs/test-report.md): 투두 항목별 테스트 결과. 항목을 끝내면 결과를 추가한다(테스트가 없는 항목은 생략).
 
