@@ -3,6 +3,8 @@ import { EventDto } from '../event/dto/event.dto';
 import { EventType } from '../event/event-type';
 import { EventService } from '../event/event.service';
 import { Participant } from './entities/participant.entity';
+import { Session } from './entities/session.entity';
+import { decodeCursor, encodeCursor } from './session-cursor';
 import { Presence, SessionStatus } from './session-status';
 import { SessionRepository } from './session.repository';
 import { SessionService } from './session.service';
@@ -154,5 +156,120 @@ describe('SessionService.end', () => {
       type: EventType.SESSION_ENDED,
       actorId: 'user-a',
     });
+  });
+});
+
+describe('SessionService.list', () => {
+  let service: SessionService;
+  let repo: jest.Mocked<SessionRepository>;
+
+  function session(n: number): Session {
+    return {
+      id: `0192a3b4-0000-7000-8000-00000000000${n}`,
+      title: `세션 ${n}`,
+      status: SessionStatus.JOIN,
+      createdBy: 'user-a',
+      lastSeq: 2,
+      createdAt: new Date(Date.UTC(2026, 9, 19, 6, 0, 10 - n)),
+      endedAt: null,
+    } as Session;
+  }
+
+  function participant(n: number, userId: string): Participant {
+    return {
+      sessionId: session(n).id,
+      userId,
+      joinedAt: CREATED_AT,
+      leftAt: null,
+      presence: Presence.OFFLINE,
+    } as Participant;
+  }
+
+  beforeEach(() => {
+    repo = {
+      findPage: jest.fn().mockResolvedValue([]),
+      findParticipantsOf: jest.fn().mockResolvedValue([]),
+    } as unknown as jest.Mocked<SessionRepository>;
+    service = new SessionService({} as EventService, repo);
+  });
+
+  it('필터를 변환해 limit + 1건을 조회한다', async () => {
+    const cursor = encodeCursor({ createdAt: CREATED_AT, id: SESSION_ID });
+    await service.list({
+      status: [SessionStatus.JOIN, SessionStatus.END],
+      participantId: 'user-a',
+      from: '2026-10-19T00:00:00.000Z',
+      to: '2026-10-20T00:00:00.000Z',
+      cursor,
+      limit: 5,
+    });
+    expect(repo.findPage).toHaveBeenCalledWith({
+      statuses: ['JOIN', 'END'],
+      participantId: 'user-a',
+      from: new Date('2026-10-19T00:00:00.000Z'),
+      to: new Date('2026-10-20T00:00:00.000Z'),
+      cursor: { createdAt: CREATED_AT, id: SESSION_ID },
+      limit: 6,
+    });
+  });
+
+  it('limit이 없으면 20건(조회는 21건)', async () => {
+    await service.list({});
+    expect(repo.findPage).toHaveBeenCalledWith(
+      expect.objectContaining({ limit: 21 }),
+    );
+  });
+
+  it('한 건이 더 있으면 limit건만 돌려주고 마지막 항목으로 nextCursor를 만든다', async () => {
+    repo.findPage.mockResolvedValue([session(1), session(2), session(3)]);
+    const result = await service.list({ limit: 2 });
+
+    expect(result.items.map((s) => s.id)).toEqual([
+      session(1).id,
+      session(2).id,
+    ]);
+    expect(decodeCursor(result.nextCursor!)).toEqual({
+      createdAt: session(2).createdAt,
+      id: session(2).id,
+    });
+    expect(repo.findParticipantsOf).toHaveBeenCalledWith([
+      session(1).id,
+      session(2).id,
+    ]);
+  });
+
+  it('더 없으면 nextCursor는 null', async () => {
+    repo.findPage.mockResolvedValue([session(1), session(2)]);
+    expect((await service.list({ limit: 2 })).nextCursor).toBeNull();
+  });
+
+  it('참여자를 세션별로 나눠 담는다', async () => {
+    repo.findPage.mockResolvedValue([session(1), session(2)]);
+    repo.findParticipantsOf.mockResolvedValue([
+      participant(1, 'user-a'),
+      participant(2, 'user-a'),
+      participant(1, 'user-b'),
+    ]);
+    const { items } = await service.list({});
+    expect(items[0].participants.map((p) => p.userId)).toEqual([
+      'user-a',
+      'user-b',
+    ]);
+    expect(items[1].participants.map((p) => p.userId)).toEqual(['user-a']);
+  });
+
+  it('결과가 없으면 참여자를 조회하지 않는다', async () => {
+    await expect(service.list({})).resolves.toEqual({
+      items: [],
+      nextCursor: null,
+    });
+    expect(repo.findParticipantsOf).not.toHaveBeenCalled();
+  });
+
+  it('잘못된 커서는 조회 전에 VALIDATION_ERROR', async () => {
+    await expect(service.list({ cursor: '!!!' })).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+    });
+    expect(repo.findPage).not.toHaveBeenCalled();
   });
 });

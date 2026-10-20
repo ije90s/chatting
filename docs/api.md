@@ -244,21 +244,28 @@ REST 응답과 socket 전달에서 같은 형식을 사용한다.
 
 ### `GET /sessions` 세션 목록
 
+`X-User-Id`가 필요하다(없으면 `401`). 조회 범위는 전체 세션이며, 참여자로 좁히려면 `participantId`를 쓴다.
+
 | 파라미터 | 설명 |
 |---|---|
 | `status` | `JOIN`, `LEAVE`, `END` (쉼표로 여러 개) |
-| `participantId` | 해당 사용자가 참여한 세션 |
-| `from`, `to` | 생성 시각 범위 (ISO-8601) |
+| `participantId` | 해당 사용자가 참여한 세션. 나간 세션도 포함한다. |
+| `from`, `to` | 생성 시각 범위 (ISO-8601). `from ≤ createdAt < to` |
 | `cursor` | 이전 응답의 `nextCursor` |
-| `limit` | 기본 20, 최대 100 |
+| `limit` | 기본 20, 1~100 |
 
 정렬은 `createdAt DESC, id DESC`이며 커서 기반으로 페이지를 나눈다.
+
+- 커서는 그 페이지 마지막 항목의 `{ createdAt, id }`를 base64url JSON으로 담은 값이다. 클라이언트는 내용을 해석하지 않고 그대로 돌려보낸다.
+- 다음 페이지가 없으면 `nextCursor`는 `null`이다.
+- 커서를 쓸 때는 첫 요청과 같은 필터를 함께 보낸다.
+- 범위를 벗어난 `limit`, 없는 `status`, ISO-8601이 아닌 시각, 잘못된 커서, 정의되지 않은 파라미터는 `400 VALIDATION_ERROR`다.
 
 **Response 200** (`data`)
 ```json
 {
   "items": [ { "...": "세션 형식" } ],
-  "nextCursor": "eyJjcmVhdGVkQXQiOi4uLn0="
+  "nextCursor": "eyJjcmVhdGVkQXQiOi4uLn0"
 }
 ```
 

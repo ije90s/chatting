@@ -1,4 +1,13 @@
-import { Body, Controller, HttpStatus, Param, Post, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpStatus,
+  Param,
+  Post,
+  Query,
+  Res,
+} from '@nestjs/common';
 import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import {
@@ -10,6 +19,7 @@ import { ErrorCode } from '../common/errors/error-code';
 import { EventDto } from '../event/dto/event.dto';
 import { AppendEventDto } from './dto/append-event.dto';
 import { CreateSessionDto } from './dto/create-session.dto';
+import { ListSessionsQueryDto, SessionListDto } from './dto/list-sessions.dto';
 import { SessionDto } from './dto/session.dto';
 import { SessionService } from './session.service';
 
@@ -32,6 +42,23 @@ export class SessionController {
     @Body() body: CreateSessionDto,
   ): Promise<SessionDto> {
     return this.sessionService.create(userId, body.title);
+  }
+
+  @Get()
+  @ApiOperation({
+    summary: '세션 목록',
+    description:
+      '상태/참여자/생성 시각(from 이상, to 미만)으로 거른다. createdAt DESC, id DESC 순서이며 커서로 페이지를 나눈다.',
+  })
+  @ApiSuccessResponse(SessionListDto)
+  @ApiErrorResponse(HttpStatus.BAD_REQUEST, ErrorCode.VALIDATION_ERROR)
+  @ApiErrorResponse(HttpStatus.UNAUTHORIZED, ErrorCode.UNAUTHORIZED)
+  // 조회 범위는 전체 세션이다. 헤더는 사용자 식별만 확인한다.
+  list(
+    @UserId() _userId: string,
+    @Query() query: ListSessionsQueryDto,
+  ): Promise<SessionListDto> {
+    return this.sessionService.list(query);
   }
 
   @Post(':id/join')

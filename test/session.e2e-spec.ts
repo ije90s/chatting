@@ -637,4 +637,159 @@ describe('Sessions (e2e)', () => {
       expect((res.body as Body).code).toBe('UNAUTHORIZED');
     });
   });
+
+  describe('GET /sessions', () => {
+    interface ListBody {
+      success: boolean;
+      code?: string;
+      data: {
+        items: { id: string; status: string; participants: unknown[] }[];
+        nextCursor: string | null;
+      };
+    }
+
+    function list(query: Record<string, string | number> = {}) {
+      return http().get('/sessions').set('X-User-Id', 'user-a').query(query);
+    }
+
+    function setCreatedAt(sessionId: string, at: string) {
+      return dataSource.query(
+        'UPDATE sessions SET created_at = ? WHERE id = ?',
+        [new Date(at), sessionId],
+      );
+    }
+
+    async function ids(query: Record<string, string | number> = {}) {
+      const res = await list(query).expect(200);
+      return (res.body as ListBody).data.items.map((s) => s.id);
+    }
+
+    it('createdAt DESC, id DESC 순서로 커서를 따라가면 빠짐과 중복 없이 모두 나온다', async () => {
+      const created: string[] = [];
+      for (let i = 0; i < 5; i++) {
+        created.push(await createSession());
+      }
+      // 세 세션의 생성 시각을 같게 만들어 id로 순서가 갈리는지 본다.
+      for (const id of created.slice(1, 4)) {
+        await setCreatedAt(id, '2026-10-19T06:00:00.500Z');
+      }
+      await setCreatedAt(created[0], '2026-10-19T06:00:00.000Z');
+      await setCreatedAt(created[4], '2026-10-19T06:00:01.000Z');
+      const expected = [
+        created[4],
+        ...created.slice(1, 4).sort().reverse(),
+        created[0],
+      ];
+
+      const seen: string[] = [];
+      let cursor: string | null = null;
+      let pages = 0;
+      do {
+        const res = await list({ limit: 2, ...(cursor && { cursor }) }).expect(
+          200,
+        );
+        const { data } = res.body as ListBody;
+        seen.push(...data.items.map((s) => s.id));
+        cursor = data.nextCursor;
+        pages++;
+      } while (cursor);
+
+      expect(seen).toEqual(expected);
+      expect(pages).toBe(3);
+    });
+
+    it('항목은 세션 형식이고 참여자를 포함한다', async () => {
+      const sessionId = await createWithTwo();
+      const res = await list().expect(200);
+      const { data } = res.body as ListBody;
+      expect(data.nextCursor).toBeNull();
+      expect(data.items).toHaveLength(1);
+      expect(data.items[0]).toMatchObject({
+        id: sessionId,
+        title: '상담 문의',
+        status: 'JOIN',
+        createdBy: 'user-a',
+        lastSeq: 3,
+        endedAt: null,
+        participants: [
+          { userId: 'user-a', leftAt: null, presence: 'OFFLINE' },
+          { userId: 'user-b', leftAt: null, presence: 'OFFLINE' },
+        ],
+      });
+    });
+
+    it('status로 거르고, 쉼표로 여러 개를 줄 수 있다', async () => {
+      const joined = await createWithTwo();
+      const left = await createWithTwo();
+      await leave(left, 'user-b');
+      const ended = await createWithTwo();
+      await end(ended, 'user-a');
+
+      expect(await ids({ status: 'LEAVE' })).toEqual([left]);
+      expect((await ids({ status: 'JOIN,END' })).sort()).toEqual(
+        [joined, ended].sort(),
+      );
+    });
+
+    it('participantId는 그 사용자가 참여한 세션만, 나간 세션도 포함한다', async () => {
+      const withB = await createWithTwo();
+      const leftB = await createWithTwo();
+      await leave(leftB, 'user-b');
+      await createSession('user-c');
+
+      expect((await ids({ participantId: 'user-b' })).sort()).toEqual(
+        [withB, leftB].sort(),
+      );
+      expect(await ids({ participantId: 'user-z' })).toEqual([]);
+    });
+
+    it('from은 포함, to는 미포함이다', async () => {
+      const before = await createSession();
+      const atFrom = await createSession();
+      const atTo = await createSession();
+      await setCreatedAt(before, '2026-10-18T23:59:59.999Z');
+      await setCreatedAt(atFrom, '2026-10-19T00:00:00.000Z');
+      await setCreatedAt(atTo, '2026-10-20T00:00:00.000Z');
+
+      expect(
+        await ids({
+          from: '2026-10-19T00:00:00.000Z',
+          to: '2026-10-20T00:00:00.000Z',
+        }),
+      ).toEqual([atFrom]);
+    });
+
+    it('필터를 함께 쓸 수 있다', async () => {
+      const target = await createWithTwo();
+      const other = await createWithTwo();
+      await end(other, 'user-a');
+      expect(await ids({ status: 'JOIN', participantId: 'user-b' })).toEqual([
+        target,
+      ]);
+    });
+
+    it.each([
+      ['limit 0', { limit: 0 }],
+      ['limit 101', { limit: 101 }],
+      ['정수가 아닌 limit', { limit: 'abc' }],
+      ['없는 status', { status: 'JOIN,FOO' }],
+      ['빈 status', { status: '' }],
+      ['ISO-8601이 아닌 from', { from: '2026/10/19' }],
+      ['ISO-8601이 아닌 to', { to: 'tomorrow' }],
+      ['잘못된 cursor', { cursor: 'abc' }],
+      ['정의되지 않은 파라미터', { sort: 'asc' }],
+    ])('%s은 400 VALIDATION_ERROR', async (_name, query) => {
+      const res = await list(query).expect(400);
+      expect((res.body as ListBody).code).toBe('VALIDATION_ERROR');
+    });
+
+    it('limit 100은 허용한다', async () => {
+      await list({ limit: 100 }).expect(200);
+    });
+
+    it('X-User-Id가 없으면 401 UNAUTHORIZED', async () => {
+      const res = await http().get('/sessions').expect(401);
+      expect((res.body as ListBody).code).toBe('UNAUTHORIZED');
+    });
+  });
 });
