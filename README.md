@@ -2,7 +2,14 @@
 
 1:1 참여자 간 실시간 채팅 서비스. 세션 단위로 이벤트를 기록하고, 이벤트를 다시 적용해 특정 시점의 세션 상태를 복원한다.
 
-상세 설계는 [docs/api.md](docs/api.md)(API), [docs/db.md](docs/db.md)(테이블)를 참고한다.
+상세 설계는 아래 문서를 참고한다.
+
+| 문서 | 내용 |
+|---|---|
+| [docs/api.md](docs/api.md) | REST API, 응답 형식, 실시간(socket.io), 순서 처리 기준 |
+| [docs/db.md](docs/db.md) | ERD, 테이블 DDL, 핫패스 쿼리와 인덱스 |
+| [docs/state-restore.md](docs/state-restore.md) | 이벤트 기반 상태 복원 설계와 구현 결과 |
+| [docs/operations.md](docs/operations.md) | 운영 설계 시나리오: 재연결 정합성, 수평 확장, 관측 가능성, 장애 대응 |
 
 ## 실행 방법
 
@@ -49,17 +56,6 @@ docker compose down -v   # 중지 + 데이터 삭제
 | API 문서 | OpenAPI (`@nestjs/swagger`) |
 | 관측성 | 로그: NestJS `Logger`(stdout), 메트릭: Prometheus v3.5 (`prom-client`, Docker). 분산 추적은 두지 않는다. |
 
-**환경 변수** (`.env`)
-
-| 변수 | 기본값 | 설명 |
-|---|---|---|
-| `PORT` | `3000` | 서버 포트 |
-| `DB_HOST` | `localhost` | DB 호스트 |
-| `DB_PORT` | `3306` | DB 포트 |
-| `DB_NAME` | `chatting` | DB 이름 |
-| `DB_USER` | `chatting` | DB 사용자 |
-| `DB_PASSWORD` | `chatting` | DB 비밀번호 |
-| `DB_ROOT_PASSWORD` | `root` | MariaDB root 비밀번호 (컨테이너 초기화용) |
 
 ## 주요 의사결정 요약
 
@@ -100,7 +96,7 @@ src/<domain>/
 - 세션 행을 잠근 뒤 중복을 확인하고, `(session_id, client_event_id)` UNIQUE를 마지막 안전장치로 둔다.
 - 중복이면 새로 저장하지 않고 `200`으로 기존 이벤트를 돌려주며, 다시 broadcast하지 않는다.
 - 중복 확인을 상태 검증보다 먼저 한다. 이미 저장된 메시지의 재전송은 그 사이 세션이 종료됐어도 성공으로 응답한다.
-- join, end는 상태 기준으로 멱등하다(이미 참여/종료면 `200`).
+- join, leave, end는 상태 기준으로 멱등하다(이미 참여/나감/종료면 `200`과 기존 이벤트).
 
 ### 순서 처리 기준 (제약 2.2)
 
@@ -111,10 +107,17 @@ src/<domain>/
 ### 쓰기 경로와 실시간 전달
 
 - 메시지, join, leave, end 등 쓰기는 REST로만 받는다. socket(`/chat`)은 커밋된 이벤트를 전달하는 수신 채널이다.
+  - 이유: 저장, 중복 방지, seq 부여를 한 경로로 모으고, 결과(새로 저장 `201`, 중복 `200`, 거절 `4xx`)를 HTTP 상태 코드로 명확히 돌려주기 위해서다. 메시지 송신도 REST 응답을 받은 시점에 저장이 확정되므로 재전송 판단이 쉽다. 수신은 socket으로 실시간이다.
 - 예외는 presence다. 사용자의 세션 첫 구독 시 `PRESENCE_ONLINE`, 마지막 구독이 끝나면(구독 해제 또는 연결 끊김) `PRESENCE_OFFLINE`을 저장한다. 서버 시작 시 `ONLINE`으로 남은 참여자는 `OFFLINE`으로 정리한다.
 - 모든 이벤트 저장은 `EventService` 한 곳에서 하고, broadcast는 커밋 후에 한다. 중복 요청은 broadcast하지 않는다.
 - 같은 세션의 "저장 → 커밋 → broadcast"를 세션별 큐에서 하나씩 실행해, 연결 중인 클라이언트는 이벤트를 seq 순서로 받는다.
 - 끊긴 동안의 이벤트는 다시 보내지 않는다. 클라이언트는 seq 빈칸을 발견하거나 재접속하면 `GET /sessions/{id}/events?afterSeq=`(참여자만)로 채운다.
+
+### 관측성
+
+- 로그는 NestJS `Logger`(stdout), 메트릭은 Prometheus(`GET /metrics`, `prom-client`)로 수집한다.
+- 메트릭: REST 요청 처리 시간, 이벤트 저장 결과(`created`/`duplicate`/`rejected`/`error`)와 시간, broadcast 실패, 소켓 연결 수, 세션 큐 대기 수 ([docs/api.md](docs/api.md) 7장).
+- 분산 추적은 두지 않는다. 요청 경로가 `EventService` 하나로 짧아 메트릭으로 충분하다.
 
 ### 세션 규칙
 
@@ -126,4 +129,4 @@ src/<domain>/
 
 - 인증/인가: `X-User-Id` 헤더로 임시 식별하며, 사용자 테이블을 두지 않는다.
 - 세션 생성 요청의 중복 방지는 이후 검토한다.
-- 다중 인스턴스: 실시간 계층(room, presence 구독 수, broadcast 순서)은 서버 한 대 기준이다. 수평 확장 시 바꿀 부분은 [docs/api.md](docs/api.md) "단일 인스턴스 제약"에 정리했다(Redis adapter 등).
+- 다중 인스턴스: 실시간 계층(room, presence 구독 수, broadcast 순서)은 서버 한 대 기준이다. 수평 확장 시 바꿀 부분은 [docs/operations.md](docs/operations.md) 2장에 정리했다(Redis adapter 등).
