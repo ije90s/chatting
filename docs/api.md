@@ -311,6 +311,8 @@ REST 응답과 socket 전달에서 같은 형식을 사용한다.
 수신 전용 채널이다. 메시지 전송은 `POST /sessions/{id}/events`로 한다.
 
 - namespace `/chat`, handshake `{ auth: { userId } }`. 없으면 연결을 거부한다.
+- `userId`는 REST의 `X-User-Id`와 같은 규칙으로 검사한다(앞뒤 공백 제거, 비어 있으면 `UNAUTHORIZED`, 64자 초과면 `VALIDATION_ERROR`).
+- 거부하면 클라이언트는 `connect_error`를 받는다. 에러의 `data`는 REST 실패 응답과 같은 `{ success: false, code, message }`다.
 
 | 방향 | 이벤트 | payload | 설명 |
 |---|---|---|---|

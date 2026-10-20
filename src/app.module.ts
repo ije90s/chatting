@@ -6,6 +6,7 @@ import { CommonModule } from './common/common.module';
 import { DatabaseModule } from './database/database.module';
 import { EventModule } from './event/event.module';
 import { ProjectionModule } from './projection/projection.module';
+import { RealtimeModule } from './realtime/realtime.module';
 import { SessionModule } from './session/session.module';
 
 @Module({
@@ -16,6 +17,7 @@ import { SessionModule } from './session/session.module';
     EventModule,
     ProjectionModule,
     SessionModule,
+    RealtimeModule,
   ],
   controllers: [AppController],
   providers: [AppService],

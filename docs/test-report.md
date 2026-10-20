@@ -16,13 +16,13 @@
 
 ## 최신 결과 요약
 
-기준: 2026-10-20, 5단계 완료
+기준: 2026-10-20, 6단계 `ChatGateway` 접속 완료
 
 | 종류 | 결과 |
 |---|---|
-| 단위 | 104 / 104 통과 (10개 파일) |
+| 단위 | 109 / 109 통과 (11개 파일) |
 | 통합 | 13 / 13 통과 (2개 파일) |
-| e2e | 81 / 81 통과 (2개 파일) |
+| e2e | 84 / 84 통과 (3개 파일) |
 | lint, build | 통과 |
 
 ### 커버리지 (핵심 로직)
@@ -207,3 +207,15 @@ e2e (실제 테스트 DB):
 - 시간대가 붙은 `at`은 응답에서 UTC로 바꿔 돌려준다.
 - 세션 생성 이전 시각과 없는 세션은 `404 SESSION_NOT_FOUND`.
 - `at` 없음, ISO-8601 아닌 `at`, 정의되지 않은 파라미터는 `400 VALIDATION_ERROR`. `X-User-Id`가 없으면 `401 UNAUTHORIZED`.
+
+## 6단계. realtime
+
+### `ChatGateway` (`/chat`, handshake `userId`) — 단위 5, e2e 3
+단위 (`authenticateSocket`):
+- `auth.userId`를 앞뒤 공백을 제거해 `socket.data.userId`에 담고 통과시킨다.
+- 없음, 빈 값, 문자열이 아닌 값은 `UNAUTHORIZED`, 64자 초과는 `VALIDATION_ERROR`로 거부한다. 에러의 `data`는 공통 에러 형식이다.
+
+e2e (실제 서버 + `socket.io-client`):
+- `/chat`에 `userId`로 접속한다.
+- `userId`가 없으면 `connect_error`의 `data`로 `{ success: false, code: 'UNAUTHORIZED', message }`를 받는다.
+- 64자를 넘으면 `VALIDATION_ERROR`로 거부한다.
