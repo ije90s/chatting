@@ -2,12 +2,17 @@
 import { EventDto } from '../event/dto/event.dto';
 import { EventType } from '../event/event-type';
 import { EventService } from '../event/event.service';
+import { Broadcaster } from '../realtime/broadcaster';
 import { Participant } from './entities/participant.entity';
 import { Session } from './entities/session.entity';
 import { decodeCursor, encodeCursor } from './session-cursor';
 import { Presence, SessionStatus } from './session-status';
 import { SessionRepository } from './session.repository';
 import { SessionService } from './session.service';
+
+function noBroadcast(): Broadcaster {
+  return { broadcast: jest.fn() } as unknown as Broadcaster;
+}
 
 const SESSION_ID = '0192a3b4-0000-7000-8000-000000000001';
 const CREATED_AT = new Date('2026-10-19T06:00:00.000Z');
@@ -44,7 +49,7 @@ describe('SessionService.create', () => {
         } as Participant,
       ]),
     } as unknown as jest.Mocked<SessionRepository>;
-    service = new SessionService(eventService, repo);
+    service = new SessionService(eventService, repo, noBroadcast());
   });
 
   it('요청자를 생성자로 EventService에 넘긴다', async () => {
@@ -90,7 +95,11 @@ describe('SessionService.join', () => {
     const eventService = {
       append: jest.fn().mockResolvedValue(result),
     } as unknown as jest.Mocked<EventService>;
-    const service = new SessionService(eventService, {} as SessionRepository);
+    const service = new SessionService(
+      eventService,
+      {} as SessionRepository,
+      noBroadcast(),
+    );
 
     await expect(service.join(SESSION_ID, 'user-b')).resolves.toBe(result);
     expect(eventService.append).toHaveBeenCalledWith(SESSION_ID, {
@@ -109,7 +118,11 @@ describe('SessionService.appendEvent', () => {
     eventService = {
       append: jest.fn().mockResolvedValue({ event: {}, created: true }),
     } as unknown as jest.Mocked<EventService>;
-    service = new SessionService(eventService, {} as SessionRepository);
+    service = new SessionService(
+      eventService,
+      {} as SessionRepository,
+      noBroadcast(),
+    );
   });
 
   it('메시지는 content만 payload로 넘기고 clientSentAt을 Date로 바꾼다', async () => {
@@ -149,7 +162,11 @@ describe('SessionService.end', () => {
     const eventService = {
       append: jest.fn().mockResolvedValue(result),
     } as unknown as jest.Mocked<EventService>;
-    const service = new SessionService(eventService, {} as SessionRepository);
+    const service = new SessionService(
+      eventService,
+      {} as SessionRepository,
+      noBroadcast(),
+    );
 
     await expect(service.end(SESSION_ID, 'user-a')).resolves.toBe(result);
     expect(eventService.append).toHaveBeenCalledWith(SESSION_ID, {
@@ -190,7 +207,7 @@ describe('SessionService.list', () => {
       findPage: jest.fn().mockResolvedValue([]),
       findParticipantsOf: jest.fn().mockResolvedValue([]),
     } as unknown as jest.Mocked<SessionRepository>;
-    service = new SessionService({} as EventService, repo);
+    service = new SessionService({} as EventService, repo, noBroadcast());
   });
 
   it('필터를 변환해 limit + 1건을 조회한다', async () => {
@@ -287,7 +304,7 @@ describe('SessionService.requireParticipant', () => {
         leftAt: null,
       }),
     } as unknown as jest.Mocked<SessionRepository>;
-    service = new SessionService({} as EventService, repo);
+    service = new SessionService({} as EventService, repo, noBroadcast());
   });
 
   it('참여자면 통과한다', async () => {
@@ -335,11 +352,85 @@ describe('SessionService.findOnlineParticipants', () => {
         } as Participant,
       ]),
     } as unknown as jest.Mocked<SessionRepository>;
-    const service = new SessionService({} as EventService, repo);
+    const service = new SessionService({} as EventService, repo, noBroadcast());
 
     await expect(service.findOnlineParticipants()).resolves.toEqual([
       { sessionId: SESSION_ID, userId: 'user-a' },
     ]);
     expect(repo.findByPresence).toHaveBeenCalledWith('ONLINE');
+  });
+});
+
+describe('SessionService broadcast', () => {
+  let service: SessionService;
+  let eventService: jest.Mocked<EventService>;
+  let broadcaster: jest.Mocked<Broadcaster>;
+  const event = { sessionId: SESSION_ID, seq: 4 } as EventDto;
+
+  beforeEach(() => {
+    eventService = {
+      append: jest.fn().mockResolvedValue({ event, created: true }),
+      createSession: jest.fn().mockResolvedValue([
+        { sessionId: SESSION_ID, seq: 1 },
+        { sessionId: SESSION_ID, seq: 2 },
+      ] as EventDto[]),
+    } as unknown as jest.Mocked<EventService>;
+    broadcaster = {
+      broadcast: jest.fn(),
+    } as unknown as jest.Mocked<Broadcaster>;
+    const repo = {
+      findById: jest.fn().mockResolvedValue({
+        id: SESSION_ID,
+        createdAt: CREATED_AT,
+        endedAt: null,
+      }),
+      findParticipants: jest.fn().mockResolvedValue([]),
+    } as unknown as SessionRepository;
+    service = new SessionService(eventService, repo, broadcaster);
+  });
+
+  const calls: [string, (s: SessionService) => Promise<unknown>][] = [
+    ['join', (s) => s.join(SESSION_ID, 'user-b')],
+    ['end', (s) => s.end(SESSION_ID, 'user-a')],
+    [
+      'appendEvent',
+      (s) =>
+        s.appendEvent(SESSION_ID, 'user-a', {
+          clientEventId: '6f1c2d3e-4b5a-4c6d-8e7f-9a0b1c2d3e4f',
+          type: EventType.MESSAGE_CREATED,
+          payload: { content: '안녕' },
+        }),
+    ],
+  ];
+
+  it.each(calls)(
+    '%s: 새로 저장된 이벤트는 커밋 후 전달한다',
+    async (_name, call) => {
+      await call(service);
+      expect(broadcaster.broadcast).toHaveBeenCalledWith([event]);
+    },
+  );
+
+  it.each(calls)(
+    '%s: 중복 요청(created: false)은 전달하지 않는다',
+    async (_name, call) => {
+      eventService.append.mockResolvedValue({ event, created: false });
+      await call(service);
+      expect(broadcaster.broadcast).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(calls)('%s: 저장이 실패하면 전달하지 않는다', async (_name, call) => {
+    eventService.append.mockRejectedValue(new Error('db down'));
+    await expect(call(service)).rejects.toThrow('db down');
+    expect(broadcaster.broadcast).not.toHaveBeenCalled();
+  });
+
+  it('세션 생성의 두 이벤트를 seq 순서로 전달한다', async () => {
+    await service.create('user-a', '상담 문의');
+    expect(broadcaster.broadcast).toHaveBeenCalledWith([
+      { sessionId: SESSION_ID, seq: 1 },
+      { sessionId: SESSION_ID, seq: 2 },
+    ]);
   });
 });

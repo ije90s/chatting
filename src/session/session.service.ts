@@ -2,7 +2,12 @@ import { Injectable } from '@nestjs/common';
 import { AppException } from '../common/errors/app.exception';
 import { ErrorCode } from '../common/errors/error-code';
 import { EventType } from '../event/event-type';
-import { AppendEventResult, EventService } from '../event/event.service';
+import {
+  AppendEventInput,
+  AppendEventResult,
+  EventService,
+} from '../event/event.service';
+import { Broadcaster } from '../realtime/broadcaster';
 import { AppendEventDto } from './dto/append-event.dto';
 import {
   DEFAULT_LIST_LIMIT,
@@ -19,20 +24,23 @@ export class SessionService {
   constructor(
     private readonly eventService: EventService,
     private readonly sessionRepository: SessionRepository,
+    private readonly broadcaster: Broadcaster,
   ) {}
 
   // 저장은 EventService가 하고, 응답은 커밋된 프로젝션에서 만든다.
   async create(userId: string, title: string): Promise<SessionDto> {
-    const [created] = await this.eventService.createSession({
+    const events = await this.eventService.createSession({
       title,
       actorId: userId,
     });
-    return this.findOne(created.sessionId);
+    // 생성 직후에는 구독자가 있을 수 없지만, 커밋된 모든 이벤트를 같은 경로로 전달한다.
+    this.broadcaster.broadcast(events);
+    return this.findOne(events[0].sessionId);
   }
 
   // 이미 참여 중이면 기존 PARTICIPANT_JOINED 이벤트를 돌려준다(created: false).
   join(sessionId: string, userId: string): Promise<AppendEventResult> {
-    return this.eventService.append(sessionId, {
+    return this.appendAndBroadcast(sessionId, {
       type: EventType.PARTICIPANT_JOINED,
       actorId: userId,
     });
@@ -40,7 +48,7 @@ export class SessionService {
 
   // 이미 END면 기존 SESSION_ENDED 이벤트를 돌려준다(created: false). 다른 참여자가 종료했어도 같다.
   end(sessionId: string, userId: string): Promise<AppendEventResult> {
-    return this.eventService.append(sessionId, {
+    return this.appendAndBroadcast(sessionId, {
       type: EventType.SESSION_ENDED,
       actorId: userId,
     });
@@ -52,7 +60,7 @@ export class SessionService {
     userId: string,
     body: AppendEventDto,
   ): Promise<AppendEventResult> {
-    return this.eventService.append(sessionId, {
+    return this.appendAndBroadcast(sessionId, {
       type: body.type,
       actorId: userId,
       clientEventId: body.clientEventId,
@@ -115,6 +123,18 @@ export class SessionService {
       ),
       nextCursor: rows.length > limit && last ? encodeCursor(last) : null,
     };
+  }
+
+  // append는 커밋까지 끝난 뒤 돌아온다. 중복 요청(created: false)은 다시 전달하지 않는다.
+  private async appendAndBroadcast(
+    sessionId: string,
+    input: AppendEventInput,
+  ): Promise<AppendEventResult> {
+    const result = await this.eventService.append(sessionId, input);
+    if (result.created) {
+      this.broadcaster.broadcast([result.event]);
+    }
+    return result;
   }
 
   private async findOne(sessionId: string): Promise<SessionDto> {

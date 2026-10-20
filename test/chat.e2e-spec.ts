@@ -284,4 +284,176 @@ describe('ChatGateway (e2e)', () => {
       expect(await presenceOf(sessionId)).toBe('OFFLINE');
     });
   });
+
+  describe('session:event broadcast', () => {
+    interface Event {
+      seq: number;
+      type: string;
+      actorId: string;
+      payload: Record<string, unknown>;
+    }
+
+    function http() {
+      return request(app.getHttpServer());
+    }
+
+    async function createWithTwo(): Promise<string> {
+      const res = await http()
+        .post('/sessions')
+        .set('X-User-Id', 'user-a')
+        .send({ title: '상담 문의' })
+        .expect(201);
+      const sessionId = (res.body as { data: { id: string } }).data.id;
+      await http()
+        .post(`/sessions/${sessionId}/join`)
+        .set('X-User-Id', 'user-b')
+        .expect(201);
+      return sessionId;
+    }
+
+    // 받은 session:event를 모은다.
+    async function listener(userId: string, sessionId?: string) {
+      const socket = connect({ userId });
+      await outcome(socket);
+      const received: Event[] = [];
+      socket.on('session:event', (event: Event) => received.push(event));
+      if (sessionId) {
+        await socket.emitWithAck('session:subscribe', { sessionId });
+      }
+      return { socket, received };
+    }
+
+    function message(
+      sessionId: string,
+      userId: string,
+      clientEventId = uuidv4(),
+    ) {
+      return http()
+        .post(`/sessions/${sessionId}/events`)
+        .set('X-User-Id', userId)
+        .send({
+          clientEventId,
+          type: 'MESSAGE_CREATED',
+          payload: { content: '안녕' },
+        });
+    }
+
+    async function waitFor(check: () => boolean): Promise<void> {
+      const deadline = Date.now() + 2000;
+      while (!check()) {
+        if (Date.now() > deadline) {
+          throw new Error('기다리던 이벤트가 오지 않았습니다.');
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    }
+
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 150));
+
+    it('REST로 저장된 이벤트를 구독자 모두에게 응답과 같은 형식으로 전달한다', async () => {
+      const sessionId = await createWithTwo();
+      const a = await listener('user-a', sessionId);
+      const b = await listener('user-b', sessionId);
+      await waitFor(() => a.received.some((e) => e.actorId === 'user-b'));
+
+      const res = await message(sessionId, 'user-b').expect(201);
+      const saved = (res.body as { data: Event }).data;
+
+      await waitFor(
+        () =>
+          a.received.some((e) => e.seq === saved.seq) &&
+          b.received.some((e) => e.seq === saved.seq),
+      );
+      expect(a.received.find((e) => e.seq === saved.seq)).toEqual(saved);
+      expect(b.received.find((e) => e.seq === saved.seq)).toEqual(saved);
+    });
+
+    it('다른 참여자의 presence 변화도 전달한다', async () => {
+      const sessionId = await createWithTwo();
+      const a = await listener('user-a', sessionId);
+      const b = await listener('user-b', sessionId);
+
+      await waitFor(() =>
+        a.received.some(
+          (e) => e.type === 'PRESENCE_ONLINE' && e.actorId === 'user-b',
+        ),
+      );
+      b.socket.disconnect();
+      await waitFor(() =>
+        a.received.some(
+          (e) => e.type === 'PRESENCE_OFFLINE' && e.actorId === 'user-b',
+        ),
+      );
+    });
+
+    it('중복 요청(같은 clientEventId, 다시 참여, 다시 종료)은 다시 전달하지 않는다', async () => {
+      const sessionId = await createWithTwo();
+      const a = await listener('user-a', sessionId);
+      const clientEventId = uuidv4();
+      await message(sessionId, 'user-a', clientEventId).expect(201);
+      await http()
+        .post(`/sessions/${sessionId}/end`)
+        .set('X-User-Id', 'user-a')
+        .expect(201);
+      await waitFor(() => a.received.some((e) => e.type === 'SESSION_ENDED'));
+      const before = a.received.length;
+
+      await message(sessionId, 'user-a', clientEventId).expect(200);
+      await http()
+        .post(`/sessions/${sessionId}/join`)
+        .set('X-User-Id', 'user-b')
+        .expect(200);
+      await http()
+        .post(`/sessions/${sessionId}/end`)
+        .set('X-User-Id', 'user-b')
+        .expect(200);
+      await settle();
+      expect(a.received).toHaveLength(before);
+    });
+
+    it('실패한 요청은 전달하지 않는다', async () => {
+      const sessionId = await createWithTwo();
+      const a = await listener('user-a', sessionId);
+      await settle();
+      const before = a.received.length;
+
+      await message(sessionId, 'user-c').expect(403);
+      await settle();
+      expect(a.received).toHaveLength(before);
+    });
+
+    it('구독하지 않았거나 해제한 소켓, 다른 세션 구독자는 받지 않는다', async () => {
+      const sessionId = await createWithTwo();
+      const other = await createWithTwo();
+      const notSubscribed = await listener('user-a');
+      const otherSession = await listener('user-a', other);
+      const unsubscribed = await listener('user-b', sessionId);
+      await unsubscribed.socket.emitWithAck('session:unsubscribe', {
+        sessionId,
+      });
+      await settle();
+      unsubscribed.received.length = 0;
+      otherSession.received.length = 0;
+
+      await message(sessionId, 'user-a').expect(201);
+      await settle();
+      expect(notSubscribed.received).toEqual([]);
+      expect(otherSession.received).toEqual([]);
+      expect(unsubscribed.received).toEqual([]);
+    });
+
+    it('이벤트는 seq 순서로 전달된다', async () => {
+      const sessionId = await createWithTwo();
+      const a = await listener('user-a', sessionId);
+      await settle();
+      a.received.length = 0;
+
+      for (let i = 0; i < 5; i++) {
+        await message(sessionId, i % 2 ? 'user-a' : 'user-b').expect(201);
+      }
+      await waitFor(() => a.received.length === 5);
+      const seqs = a.received.map((e) => e.seq);
+      expect(seqs).toEqual([...seqs].sort((x, y) => x - y));
+    });
+  });
 });

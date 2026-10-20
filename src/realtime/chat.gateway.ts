@@ -17,13 +17,10 @@ import { HttpExceptionFilter } from '../common/errors/http-exception.filter';
 import { EventType } from '../event/event-type';
 import { EventService } from '../event/event.service';
 import { SessionService } from '../session/session.service';
+import { Broadcaster, sessionRoom } from './broadcaster';
 import { PresenceKey, PresenceTracker } from './presence-tracker';
 import { authenticateSocket } from './socket-auth';
 import type { ChatSocket } from './socket-auth';
-
-export function sessionRoom(sessionId: string): string {
-  return `session:${sessionId}`;
-}
 
 type SubscribeAck = SuccessResponse<{ sessionId: string }> | ErrorResponseDto;
 
@@ -51,6 +48,7 @@ export class ChatGateway
   constructor(
     private readonly sessionService: SessionService,
     private readonly eventService: EventService,
+    private readonly broadcaster: Broadcaster,
   ) {}
 
   // 메모리의 연결 정보는 재시작하면 사라진다. 연결을 받기 전에 ONLINE으로 남은 참여자를 OFFLINE으로 기록한다.
@@ -67,6 +65,7 @@ export class ChatGateway
 
   afterInit(namespace: Namespace): void {
     namespace.use(authenticateSocket);
+    this.broadcaster.attach(namespace);
   }
 
   handleConnection(socket: ChatSocket): void {
@@ -138,7 +137,11 @@ export class ChatGateway
         }),
       )
       .then(
-        () => undefined,
+        ({ event, created }) => {
+          if (created) {
+            this.broadcaster.broadcast([event]);
+          }
+        },
         (error: unknown) => {
           this.logger.error(
             `${type} 저장 실패: session=${key.sessionId} user=${key.userId}`,

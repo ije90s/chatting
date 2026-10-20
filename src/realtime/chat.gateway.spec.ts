@@ -4,6 +4,7 @@ import { ErrorCode } from '../common/errors/error-code';
 import { EventType } from '../event/event-type';
 import { EventService } from '../event/event.service';
 import { SessionService } from '../session/session.service';
+import { Broadcaster } from './broadcaster';
 import { ChatGateway } from './chat.gateway';
 import type { ChatSocket } from './socket-auth';
 
@@ -13,6 +14,7 @@ describe('ChatGateway 구독', () => {
   let gateway: ChatGateway;
   let sessionService: jest.Mocked<SessionService>;
   let eventService: jest.Mocked<EventService>;
+  let broadcaster: jest.Mocked<Broadcaster>;
   let socket: jest.Mocked<ChatSocket>;
 
   beforeEach(() => {
@@ -22,6 +24,10 @@ describe('ChatGateway 구독', () => {
     eventService = {
       append: jest.fn().mockResolvedValue({ event: {}, created: true }),
     } as unknown as jest.Mocked<EventService>;
+    broadcaster = {
+      attach: jest.fn(),
+      broadcast: jest.fn(),
+    } as unknown as jest.Mocked<Broadcaster>;
     socket = {
       id: 'socket-1',
       connected: true,
@@ -30,7 +36,7 @@ describe('ChatGateway 구독', () => {
       leave: jest.fn(),
       emit: jest.fn(),
     } as unknown as jest.Mocked<ChatSocket>;
-    gateway = new ChatGateway(sessionService, eventService);
+    gateway = new ChatGateway(sessionService, eventService, broadcaster);
   });
 
   it('참여자면 session:{id} room에 넣고 성공 ack를 돌려준다', async () => {
@@ -113,6 +119,7 @@ describe('ChatGateway presence', () => {
   let gateway: ChatGateway;
   let sessionService: jest.Mocked<SessionService>;
   let eventService: jest.Mocked<EventService>;
+  let broadcaster: jest.Mocked<Broadcaster>;
 
   function socketOf(id: string, userId = 'user-a'): ChatSocket {
     return {
@@ -141,7 +148,11 @@ describe('ChatGateway presence', () => {
     eventService = {
       append: jest.fn().mockResolvedValue({ event: {}, created: true }),
     } as unknown as jest.Mocked<EventService>;
-    gateway = new ChatGateway(sessionService, eventService);
+    broadcaster = {
+      attach: jest.fn(),
+      broadcast: jest.fn(),
+    } as unknown as jest.Mocked<Broadcaster>;
+    gateway = new ChatGateway(sessionService, eventService, broadcaster);
   });
 
   it('첫 구독에서만 PRESENCE_ONLINE을 저장한다(여러 탭)', async () => {
@@ -245,6 +256,31 @@ describe('ChatGateway presence', () => {
       gateway.subscribe(socketOf('tab-1'), { sessionId: SESSION_ID }),
     ).resolves.toMatchObject({ success: true });
     expect(logError).toHaveBeenCalled();
+  });
+
+  it('저장된 presence 이벤트는 커밋 후 전달하고, 새로 저장되지 않았으면 전달하지 않는다', async () => {
+    const online = { sessionId: SESSION_ID, seq: 3 };
+    eventService.append.mockResolvedValueOnce({
+      event: online as never,
+      created: true,
+    });
+    const socket = socketOf('tab-1');
+    await gateway.subscribe(socket, { sessionId: SESSION_ID });
+    expect(broadcaster.broadcast).toHaveBeenCalledWith([online]);
+
+    eventService.append.mockResolvedValueOnce({
+      event: {} as never,
+      created: false,
+    });
+    await gateway.unsubscribe(socket, { sessionId: SESSION_ID });
+    expect(broadcaster.broadcast).toHaveBeenCalledTimes(1);
+  });
+
+  it('presence 저장이 실패하면 전달하지 않는다', async () => {
+    eventService.append.mockRejectedValue(new Error('db down'));
+    jest.spyOn(gateway['logger'], 'error').mockImplementation(() => undefined);
+    await gateway.subscribe(socketOf('tab-1'), { sessionId: SESSION_ID });
+    expect(broadcaster.broadcast).not.toHaveBeenCalled();
   });
 
   it('시작할 때 ONLINE으로 남은 참여자를 PRESENCE_OFFLINE으로 기록한다', async () => {

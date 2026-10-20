@@ -321,6 +321,12 @@ REST 응답과 socket 전달에서 같은 형식을 사용한다.
 | 서버 → 클라이언트 | `session:event` | 이벤트 공통 형식 | 커밋된 모든 이벤트 |
 | 서버 → 클라이언트 | `session:error` | `{ success: false, code, message }` | 구독 실패 등 |
 
+**`session:event` 전달**
+- REST(생성, 참여, 메시지, 나가기, 종료)와 presence로 새로 저장된 이벤트를 트랜잭션 커밋 후 `session:{id}` room에 전달한다. 형식은 REST 응답의 이벤트와 같다.
+- 중복 요청(같은 `clientEventId`, 다시 참여, 다시 나가기, 다시 종료)과 실패한 요청은 전달하지 않는다.
+- 이미 커밋된 뒤이므로 전달에 실패해도 요청 결과는 바뀌지 않고 서버 로그만 남는다.
+- 서로 다른 요청의 전달 순서가 seq와 어긋날 수 있다. 클라이언트는 seq로 정렬하고, 빠진 seq는 타임라인이나 세션의 `lastSeq`로 확인한다.
+
 **구독 결과**
 - `session:subscribe`, `session:unsubscribe`는 ack로 결과를 돌려준다. 성공은 `{ success: true, data: { sessionId } }`, 실패는 `{ success: false, code, message }`다.
 - 실패하면 같은 내용을 `session:error`로도 보낸다.

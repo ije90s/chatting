@@ -2,6 +2,7 @@ import { Socket } from 'socket.io';
 import { extractUserId } from '../common/decorators/user-id.decorator';
 import { AppException } from '../common/errors/app.exception';
 import { ErrorResponseDto } from '../common/dto/error-response.dto';
+import { EventDto } from '../event/dto/event.dto';
 
 export interface ChatSocketData {
   userId: string;
@@ -9,6 +10,7 @@ export interface ChatSocketData {
 
 // 서버 → 클라이언트 이벤트 (docs/api.md "실시간")
 export interface ServerToClientEvents {
+  'session:event': (event: EventDto) => void;
   'session:error': (error: ErrorResponseDto) => void;
 }
 
