@@ -22,7 +22,7 @@
 |---|---|
 | 단위 | 88 / 88 통과 (9개 파일) |
 | 통합 | 13 / 13 통과 (2개 파일) |
-| e2e | 47 / 47 통과 (2개 파일) |
+| e2e | 50 / 50 통과 (2개 파일) |
 | lint, build | 통과 |
 
 ### 커버리지 (핵심 로직)
@@ -157,17 +157,18 @@ e2e (실제 테스트 DB, 나가기는 REST, 종료 상태는 `EventService`로 
 - `LEAVE`, `END` 세션에 새 사용자가 참여하면 `409 INVALID_SESSION_STATUS`.
 - 없는 세션은 `404 SESSION_NOT_FOUND`, `X-User-Id`가 없으면 `401 UNAUTHORIZED`.
 
-### `POST /sessions/{id}/events` — 단위 2, e2e 21
+### `POST /sessions/{id}/events` — 단위 2, e2e 24
 단위:
 - 메시지는 `content`만 payload로 넘기고 `clientSentAt`을 `Date`로 바꾼다(오프셋 포함 시각도 UTC로).
 - 나가기는 빈 payload로 넘기고, `clientSentAt`이 없으면 `null`.
 
 e2e (실제 테스트 DB):
 - 메시지를 저장하면 `201`과 이벤트(seq 4, `clientEventId`, `payload`, `clientSentAt`)를 돌려준다.
+- 메시지는 5000자까지 허용한다. 이모지는 1자로 센다(😀 5000개 허용). 앞뒤 공백은 보낸 그대로 저장한다.
 - 같은 `clientEventId`는 본문이 달라도 `200`으로 처음 이벤트를 돌려주고 새로 저장하지 않는다.
 - 세션이 그 뒤 `END`가 돼도 저장된 키는 `200`이고, 저장된 적 없는 키는 `409 INVALID_SESSION_STATUS`(중복 확인이 상태 검증보다 먼저).
 - 나가면 `201`, 세션은 `LEAVE`, 참여자 `left_at`이 기록된다. 이미 나간 사용자가 새 키로 다시 나가면 `200`으로 기존 이벤트.
 - 나간 사용자의 메시지는 `409 ALREADY_LEFT`, 남은 사용자의 메시지는 `409 INVALID_SESSION_STATUS`.
 - 참여자가 아니면 메시지와 나가기 모두 `403 NOT_PARTICIPANT`.
-- 검증 실패 12가지(`clientEventId` 없음·UUID 아님, `type` 없음·`PARTICIPANT_JOINED`·`PRESENCE_ONLINE`, 메시지 payload 없음·빈 content·문자열 아닌 content·payload의 정의되지 않은 필드, 비어 있지 않은 나가기 payload, ISO-8601 아닌 `clientSentAt`, 정의되지 않은 필드)는 `400 VALIDATION_ERROR`이고 저장하지 않는다.
+- 검증 실패 14가지(`clientEventId` 없음·UUID 아님, `type` 없음·`PARTICIPANT_JOINED`·`PRESENCE_ONLINE`, 메시지 payload 없음·빈 content·공백만 있는 content·5001자 content·문자열 아닌 content·payload의 정의되지 않은 필드, 비어 있지 않은 나가기 payload, ISO-8601 아닌 `clientSentAt`, 정의되지 않은 필드)는 `400 VALIDATION_ERROR`이고 저장하지 않는다.
 - 없는 세션은 `404 SESSION_NOT_FOUND`, `X-User-Id`가 없으면 `401 UNAUTHORIZED`.

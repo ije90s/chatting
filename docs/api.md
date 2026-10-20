@@ -208,7 +208,7 @@ REST 응답과 socket 전달에서 같은 형식을 사용한다.
 |---|---|---|
 | `clientEventId` | ✅ | 클라이언트가 만든 UUID. 재전송할 때도 같은 값을 쓴다. 아래 "`clientEventId` 규칙" 참고. |
 | `type` | ✅ | `MESSAGE_CREATED` 또는 `PARTICIPANT_LEFT` |
-| `payload` | | `MESSAGE_CREATED`: `{ "content": "..." }` (필수, 비어 있지 않은 문자열, 최대 길이는 미정) / `PARTICIPANT_LEFT`: `{}` 또는 생략. 정의되지 않은 필드가 있으면 `400 VALIDATION_ERROR` |
+| `payload` | | `MESSAGE_CREATED`: `{ "content": "..." }` (필수. 공백만 있으면 안 되고, 최대 5000자(코드 포인트 기준, 이모지 1개 = 1자). 앞뒤 공백을 포함해 보낸 그대로 저장한다) / `PARTICIPANT_LEFT`: `{}` 또는 생략. 정의되지 않은 필드가 있으면 `400 VALIDATION_ERROR` |
 | `clientSentAt` | | 참고용 시각(ISO-8601). 정렬에 쓰지 않는다. 응답에서는 UTC로 바꿔 돌려준다. |
 
 **`clientEventId` 규칙**

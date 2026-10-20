@@ -19,12 +19,23 @@ export const APPENDABLE_EVENT_TYPES = [
 
 export type AppendableEventType = (typeof APPENDABLE_EVENT_TYPES)[number];
 
+// 이모지가 2자로 세지지 않도록 코드 포인트 수로 센다.
+export const MAX_MESSAGE_LENGTH = 5000;
+
+function isValidContent(content: unknown): boolean {
+  return (
+    typeof content === 'string' &&
+    content.trim().length > 0 &&
+    [...content].length <= MAX_MESSAGE_LENGTH
+  );
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 // payload 형식은 type에 따라 다르다.
-// MESSAGE_CREATED: { content: 비어 있지 않은 문자열 }, PARTICIPANT_LEFT: 없거나 {}
+// MESSAGE_CREATED: { content: 공백만이 아닌 5000자 이하 문자열 }, PARTICIPANT_LEFT: 없거나 {}
 @ValidatorConstraint({ name: 'eventPayload' })
 class EventPayloadConstraint implements ValidatorConstraintInterface {
   validate(payload: unknown, args: ValidationArguments): boolean {
@@ -33,8 +44,7 @@ class EventPayloadConstraint implements ValidatorConstraintInterface {
       return (
         isPlainObject(payload) &&
         Object.keys(payload).length === 1 &&
-        typeof payload.content === 'string' &&
-        payload.content.length > 0
+        isValidContent(payload.content)
       );
     }
     if (type === EventType.PARTICIPANT_LEFT) {
@@ -50,7 +60,7 @@ class EventPayloadConstraint implements ValidatorConstraintInterface {
   defaultMessage(args: ValidationArguments): string {
     const { type } = args.object as AppendEventDto;
     return type === EventType.MESSAGE_CREATED
-      ? 'MESSAGE_CREATED의 payload는 { content: 비어 있지 않은 문자열 }이어야 합니다.'
+      ? `MESSAGE_CREATED의 payload는 { content: 공백만이 아닌 ${MAX_MESSAGE_LENGTH}자 이하 문자열 }이어야 합니다.`
       : 'PARTICIPANT_LEFT의 payload는 비어 있어야 합니다.';
   }
 }
@@ -74,7 +84,7 @@ export class AppendEventDto {
     additionalProperties: true,
     example: { content: '안녕하세요' },
     description:
-      'MESSAGE_CREATED: { content } (필수) / PARTICIPANT_LEFT: {} 또는 생략',
+      'MESSAGE_CREATED: { content } (필수, 공백만이면 안 됨, 5000자 이하) / PARTICIPANT_LEFT: {} 또는 생략',
   })
   @Validate(EventPayloadConstraint)
   payload?: Record<string, unknown>;

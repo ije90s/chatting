@@ -319,6 +319,28 @@ describe('Sessions (e2e)', () => {
       });
     });
 
+    it('메시지는 5000자까지 허용하고 앞뒤 공백을 포함해 그대로 저장한다', async () => {
+      const sessionId = await createWithTwo();
+      const long = await sendMessage(
+        sessionId,
+        'user-a',
+        '가'.repeat(5000),
+      ).expect(201);
+      expect(
+        ((long.body as Body).data.payload as { content: string }).content,
+      ).toHaveLength(5000);
+
+      // 이모지는 UTF-16으로 2자지만 1자로 센다.
+      await sendMessage(sessionId, 'user-a', '😀'.repeat(5000)).expect(201);
+
+      const spaced = await sendMessage(sessionId, 'user-a', '  안녕 \n').expect(
+        201,
+      );
+      expect((spaced.body as Body).data.payload).toEqual({
+        content: '  안녕 \n',
+      });
+    });
+
     it('같은 clientEventId는 200으로 기존 이벤트를 돌려주고 새로 저장하지 않는다', async () => {
       const sessionId = await createWithTwo();
       const clientEventId = uuidv4();
@@ -456,6 +478,22 @@ describe('Sessions (e2e)', () => {
           clientEventId: uuidv4(),
           type: 'MESSAGE_CREATED',
           payload: { content: '' },
+        },
+      ],
+      [
+        '공백만 있는 content',
+        {
+          clientEventId: uuidv4(),
+          type: 'MESSAGE_CREATED',
+          payload: { content: ' \t\n ' },
+        },
+      ],
+      [
+        '5001자 content',
+        {
+          clientEventId: uuidv4(),
+          type: 'MESSAGE_CREATED',
+          payload: { content: '가'.repeat(5001) },
         },
       ],
       [
