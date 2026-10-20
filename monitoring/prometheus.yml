@@ -1,0 +1,11 @@
+# 개발용 수집 설정. 앱은 호스트에서 npm run start:dev로 실행하므로 컨테이너에서 host.docker.internal로 접근한다.
+# 서버를 여러 대로 늘리면 LB가 아니라 각 인스턴스를 직접 수집한다(static_configs에 나열하거나 dns_sd_configs 사용).
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: chatting
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['host.docker.internal:3000']

@@ -22,5 +22,21 @@ services:
       timeout: 5s
       retries: 10
 
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    container_name: chatting-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+    ports:
+      - '${PROMETHEUS_PORT:-9090}:9090'
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    # Linux에서도 host.docker.internal로 호스트의 앱(3000)에 접근한다.
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+
 volumes:
   mariadb-data:
+  prometheus-data:

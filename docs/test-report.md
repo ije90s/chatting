@@ -16,7 +16,7 @@
 
 ## 최신 결과 요약
 
-기준: 2026-10-20, 8단계 진행 중 (`GET /metrics`, 도메인 메트릭 완료)
+기준: 2026-10-20, 8단계 완료 (전체 투두 완료)
 
 | 종류 | 결과 |
 |---|---|
@@ -39,7 +39,7 @@
 | `realtime/presence-tracker.ts` | 100% | 100% | |
 | `realtime/broadcaster.ts` | 100% | 75% | 남은 분기: Error가 아닌 값이 던져진 경우의 로그 |
 | `metrics/metrics.service.ts` | 100% | 100% | |
-| `metrics/http-metrics.middleware.ts` | 100% | 88% | 남은 분기: Nest가 넘기는 `next`가 없는 경우 |
+| `metrics/http-metrics.middleware.ts` | 100% | 88% | 남은 분기: 생성자 파라미터의 데코레이터 메타데이터(컴파일 산출물) |
 | `realtime/chat.gateway.ts` | 95% | 82% | `afterInit`, `handleConnection`은 e2e에서 실행 |
 | `realtime/socket-auth.ts` | 100% | 100% | |
 | `common/errors/http-exception.filter.ts` | 84% | 80% | `catch()`의 응답 쓰기는 e2e에서 실행 |

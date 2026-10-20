@@ -23,7 +23,7 @@
 
 ```bash
 cp .env.example .env     # 최초 1회
-docker compose up -d     # MariaDB 실행 (UTC, utf8mb4)
+docker compose up -d     # MariaDB(UTC, utf8mb4), Prometheus(http://localhost:9090) 실행
 npm run migration:run    # 마이그레이션 적용
 npm run start:dev        # 개발 서버 (http://localhost:3000)
 npm run lint             # ESLint

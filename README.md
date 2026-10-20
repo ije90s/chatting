@@ -9,7 +9,7 @@
 ```bash
 npm install
 cp .env.example .env     # 최초 1회
-docker compose up -d     # MariaDB 실행
+docker compose up -d     # MariaDB, Prometheus 실행
 npm run migration:run    # 테이블 생성 (마이그레이션 적용)
 npm run start:dev        # 개발 서버 (http://localhost:3000)
 ```
@@ -18,6 +18,8 @@ npm run start:dev        # 개발 서버 (http://localhost:3000)
 |---|---|
 | `http://localhost:3000/docs` | Swagger UI |
 | `http://localhost:3000/docs-json` | OpenAPI JSON |
+| `http://localhost:3000/metrics` | Prometheus 메트릭 (텍스트, `X-User-Id` 불필요) |
+| `http://localhost:9090` | Prometheus UI. 15초마다 `host.docker.internal:3000/metrics`를 수집한다 (`monitoring/prometheus.yml`) |
 
 요청 헤더 `X-User-Id`로 사용자를 식별한다(임시). Swagger UI에서는 Authorize에 값을 넣는다.
 
@@ -31,8 +33,8 @@ npm run test:int         # 통합 테스트 (MariaDB 실행 필요, 테스트 DB
 npm run test:cov         # 단위 테스트 커버리지
 npm run migration:generate -- src/database/migrations/<Name>   # 엔티티 변경 후 마이그레이션 생성
 npm run migration:revert # 마지막 마이그레이션 되돌리기
-docker compose down      # MariaDB 중지 (데이터 유지)
-docker compose down -v   # MariaDB 중지 + 데이터 삭제
+docker compose down      # MariaDB, Prometheus 중지 (데이터 유지)
+docker compose down -v   # 중지 + 데이터 삭제
 ```
 
 ## 환경 구성
@@ -45,6 +47,7 @@ docker compose down -v   # MariaDB 중지 + 데이터 삭제
 | ORM | TypeORM (스키마는 마이그레이션으로 관리, `synchronize` 미사용) |
 | 실시간 | socket.io (namespace `/chat`, handshake `auth.userId`) |
 | API 문서 | OpenAPI (`@nestjs/swagger`) |
+| 관측성 | 로그: NestJS `Logger`(stdout), 메트릭: Prometheus v3.5 (`prom-client`, Docker). 분산 추적은 두지 않는다. |
 
 **환경 변수** (`.env`)
 

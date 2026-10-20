@@ -401,6 +401,7 @@ REST 응답과 socket 전달에서 같은 형식을 사용한다.
 - Prometheus 텍스트 형식(`text/plain; version=0.0.4`)으로 돌려준다. 공통 응답 형식(`{ success, data }`)으로 감싸지 않는다.
 - `X-User-Id`를 요구하지 않는다. 외부에 공개하지 않고 내부망에서 Prometheus만 접근하는 것을 전제로 한다.
 - 메트릭은 프로세스별이다. 서버가 여러 대면 Prometheus가 각 인스턴스를 직접 수집하고 `instance` 라벨로 구분한다.
+- 개발 환경에서는 `docker compose`의 Prometheus(v3.5, `:9090`)가 15초마다 호스트의 앱(`host.docker.internal:3000/metrics`)을 수집한다. 설정은 `monitoring/prometheus.yml`, 보관 기간은 7일이다. 대시보드는 Prometheus 내장 UI를 쓴다.
 
 | 메트릭 | 종류 | 라벨 | 설명 |
 |---|---|---|---|
