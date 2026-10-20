@@ -8,6 +8,8 @@ import { Broadcaster } from './broadcaster';
 import { ChatGateway } from './chat.gateway';
 import { SessionQueue } from './session-queue';
 import type { ChatSocket } from './socket-auth';
+import { MetricsService } from '../metrics/metrics.service';
+import { readMetric } from '../metrics/read-metric';
 
 const SESSION_ID = '0192a3b4-0000-7000-8000-000000000001';
 
@@ -30,7 +32,7 @@ describe('ChatGateway 구독', () => {
       attach: jest.fn(),
       broadcast: jest.fn(),
     } as unknown as jest.Mocked<Broadcaster>;
-    queue = new SessionQueue();
+    queue = new SessionQueue(new MetricsService());
     socket = {
       id: 'socket-1',
       connected: true,
@@ -39,7 +41,13 @@ describe('ChatGateway 구독', () => {
       leave: jest.fn(),
       emit: jest.fn(),
     } as unknown as jest.Mocked<ChatSocket>;
-    gateway = new ChatGateway(sessionService, eventService, broadcaster, queue);
+    gateway = new ChatGateway(
+      sessionService,
+      eventService,
+      broadcaster,
+      queue,
+      new MetricsService(),
+    );
   });
 
   it('참여자면 session:{id} room에 넣고 성공 ack를 돌려준다', async () => {
@@ -156,8 +164,14 @@ describe('ChatGateway presence', () => {
       attach: jest.fn(),
       broadcast: jest.fn(),
     } as unknown as jest.Mocked<Broadcaster>;
-    queue = new SessionQueue();
-    gateway = new ChatGateway(sessionService, eventService, broadcaster, queue);
+    queue = new SessionQueue(new MetricsService());
+    gateway = new ChatGateway(
+      sessionService,
+      eventService,
+      broadcaster,
+      queue,
+      new MetricsService(),
+    );
   });
 
   it('첫 구독에서만 PRESENCE_ONLINE을 저장한다(여러 탭)', async () => {
@@ -299,5 +313,70 @@ describe('ChatGateway presence', () => {
       [SESSION_ID, EventType.PRESENCE_OFFLINE, 'user-a'],
       [SESSION_ID, EventType.PRESENCE_OFFLINE, 'user-b'],
     ]);
+  });
+});
+
+describe('ChatGateway 메트릭', () => {
+  let gateway: ChatGateway;
+  let eventService: jest.Mocked<EventService>;
+  let metrics: MetricsService;
+
+  const socket = (id: string) =>
+    ({
+      id,
+      connected: true,
+      data: { userId: 'user-a' },
+      join: jest.fn(),
+      leave: jest.fn(),
+      emit: jest.fn(),
+    }) as unknown as ChatSocket;
+
+  beforeEach(() => {
+    metrics = new MetricsService();
+    eventService = {
+      append: jest.fn().mockResolvedValue({ event: {}, created: true }),
+    } as unknown as jest.Mocked<EventService>;
+    gateway = new ChatGateway(
+      {
+        requireParticipant: jest.fn().mockResolvedValue(undefined),
+      } as unknown as SessionService,
+      eventService,
+      { broadcast: jest.fn() } as unknown as Broadcaster,
+      new SessionQueue(metrics),
+      metrics,
+    );
+  });
+
+  it('연결되면 늘리고 끊기면 줄여 현재 연결 수를 보여 준다', async () => {
+    const connections = () =>
+      readMetric(metrics.registry, 'chat_socket_connections');
+    gateway.handleConnection(socket('s1'));
+    gateway.handleConnection(socket('s2'));
+    expect(await connections()).toBe(2);
+
+    gateway.handleDisconnect(socket('s1'));
+    expect(await connections()).toBe(1);
+  });
+
+  it('presence 저장 결과를 이벤트 타입별로 센다', async () => {
+    const s1 = socket('s1');
+    await gateway.subscribe(s1, { sessionId: SESSION_ID });
+    eventService.append.mockRejectedValueOnce(
+      new AppException(ErrorCode.NOT_PARTICIPANT),
+    );
+    await gateway.unsubscribe(s1, { sessionId: SESSION_ID });
+
+    expect(
+      await readMetric(metrics.registry, 'chat_event_appends_total', {
+        type: EventType.PRESENCE_ONLINE,
+        result: 'created',
+      }),
+    ).toBe(1);
+    expect(
+      await readMetric(metrics.registry, 'chat_event_appends_total', {
+        type: EventType.PRESENCE_OFFLINE,
+        result: 'rejected',
+      }),
+    ).toBe(1);
   });
 });

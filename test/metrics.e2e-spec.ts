@@ -2,6 +2,7 @@ import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
+import { v4 as uuidv4 } from 'uuid';
 import { AppModule } from '../src/app.module';
 
 describe('GET /metrics (e2e)', () => {
@@ -59,5 +60,67 @@ describe('GET /metrics (e2e)', () => {
       .get('/')
       .expect(200)
       .expect({ success: true, data: 'Hello World!' });
+  });
+
+  function sampleOf(text: string, metric: string, labels: string): number {
+    const line = text
+      .split('\n')
+      .find((l) =>
+        l.startsWith(labels ? `${metric}{${labels}} ` : `${metric} `),
+      );
+    return line ? Number(line.split(' ').at(-1)) : NaN;
+  }
+
+  it('REST 쓰기의 저장 결과를 이벤트 타입과 결과별로 센다', async () => {
+    const before = (await http().get('/metrics')).text;
+    // 처음 나오는 라벨 조합은 이전 값이 없으므로 0으로 본다.
+    const count = (text: string, type: string, result: string) =>
+      sampleOf(
+        text,
+        'chat_event_appends_total',
+        `type="${type}",result="${result}"`,
+      ) || 0;
+
+    const created = await http()
+      .post('/sessions')
+      .set('X-User-Id', 'metrics-a')
+      .send({ title: '메트릭' })
+      .expect(201);
+    const sessionId = (created.body as { data: { id: string } }).data.id;
+    await http()
+      .post(`/sessions/${sessionId}/join`)
+      .set('X-User-Id', 'metrics-b')
+      .expect(201);
+    await http()
+      .post(`/sessions/${sessionId}/join`)
+      .set('X-User-Id', 'metrics-c')
+      .expect(409);
+    const message = {
+      type: 'MESSAGE_CREATED',
+      clientEventId: uuidv4(),
+      payload: { content: '안녕하세요' },
+    };
+    await http()
+      .post(`/sessions/${sessionId}/events`)
+      .set('X-User-Id', 'metrics-a')
+      .send(message)
+      .expect(201);
+    await http()
+      .post(`/sessions/${sessionId}/events`)
+      .set('X-User-Id', 'metrics-a')
+      .send(message)
+      .expect(200);
+
+    const after = (await http().get('/metrics')).text;
+    const delta = (type: string, result: string) =>
+      count(after, type, result) - count(before, type, result);
+    expect(delta('SESSION_CREATED', 'created')).toBe(1);
+    expect(delta('PARTICIPANT_JOINED', 'created')).toBe(1);
+    expect(delta('PARTICIPANT_JOINED', 'rejected')).toBe(1);
+    expect(delta('MESSAGE_CREATED', 'created')).toBe(1);
+    expect(delta('MESSAGE_CREATED', 'duplicate')).toBe(1);
+    expect(after).toContain('chat_event_append_duration_seconds_bucket');
+    expect(sampleOf(after, 'chat_session_queue_pending', '')).toBe(0);
+    expect(after).not.toContain(sessionId);
   });
 });

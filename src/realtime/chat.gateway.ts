@@ -16,6 +16,7 @@ import { ErrorCode } from '../common/errors/error-code';
 import { HttpExceptionFilter } from '../common/errors/http-exception.filter';
 import { EventType } from '../event/event-type';
 import { EventService } from '../event/event.service';
+import { MetricsService } from '../metrics/metrics.service';
 import { SessionService } from '../session/session.service';
 import { Broadcaster, sessionRoom } from './broadcaster';
 import { PresenceKey, PresenceTracker } from './presence-tracker';
@@ -48,6 +49,7 @@ export class ChatGateway
     private readonly eventService: EventService,
     private readonly broadcaster: Broadcaster,
     private readonly sessionQueue: SessionQueue,
+    private readonly metrics: MetricsService,
   ) {}
 
   // 메모리의 연결 정보는 재시작하면 사라진다. 연결을 받기 전에 ONLINE으로 남은 참여자를 OFFLINE으로 기록한다.
@@ -68,10 +70,12 @@ export class ChatGateway
   }
 
   handleConnection(socket: ChatSocket): void {
+    this.metrics.socketConnections.inc();
     this.logger.debug(`connected: ${socket.data.userId} (${socket.id})`);
   }
 
   handleDisconnect(socket: ChatSocket): void {
+    this.metrics.socketConnections.dec();
     for (const key of this.presence.removeSocket(socket.id)) {
       void this.recordPresence(key, EventType.PRESENCE_OFFLINE);
     }
@@ -129,9 +133,11 @@ export class ChatGateway
   private recordPresence(key: PresenceKey, type: PresenceType): Promise<void> {
     return this.sessionQueue
       .run(key.sessionId, async () => {
-        const { event, created } = await this.eventService.append(
-          key.sessionId,
-          { type, actorId: key.userId },
+        const { event, created } = await this.metrics.observeAppend(type, () =>
+          this.eventService.append(key.sessionId, {
+            type,
+            actorId: key.userId,
+          }),
         );
         if (created) {
           this.broadcaster.broadcast([event]);

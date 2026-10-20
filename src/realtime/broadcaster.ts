@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Namespace } from 'socket.io';
 import { EventDto } from '../event/dto/event.dto';
+import { MetricsService } from '../metrics/metrics.service';
 import type { ServerToClientEvents } from './socket-auth';
 
 export function sessionRoom(sessionId: string): string {
@@ -15,6 +16,8 @@ type ChatNamespace = Namespace<Record<string, never>, ServerToClientEvents>;
 export class Broadcaster {
   private readonly logger = new Logger(Broadcaster.name);
   private namespace: ChatNamespace | null = null;
+
+  constructor(private readonly metrics: MetricsService) {}
 
   // ChatGateway가 초기화될 때 /chat namespace를 연결한다.
   attach(namespace: ChatNamespace): void {
@@ -32,6 +35,7 @@ export class Broadcaster {
           .to(sessionRoom(event.sessionId))
           .emit('session:event', event);
       } catch (error) {
+        this.metrics.broadcastFailures.inc();
         this.logger.error(
           `broadcast 실패: session=${event.sessionId} seq=${event.seq}`,
           error instanceof Error ? error.stack : String(error),

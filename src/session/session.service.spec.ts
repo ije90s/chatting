@@ -10,6 +10,12 @@ import { decodeCursor, encodeCursor } from './session-cursor';
 import { Presence, SessionStatus } from './session-status';
 import { SessionRepository } from './session.repository';
 import { SessionService } from './session.service';
+import { MetricsService } from '../metrics/metrics.service';
+import { readMetric } from '../metrics/read-metric';
+import { AppException } from '../common/errors/app.exception';
+import { ErrorCode } from '../common/errors/error-code';
+import { AppendEventDto } from './dto/append-event.dto';
+import { SessionDto } from './dto/session.dto';
 
 function noBroadcast(): Broadcaster {
   return { broadcast: jest.fn() } as unknown as Broadcaster;
@@ -54,7 +60,8 @@ describe('SessionService.create', () => {
       eventService,
       repo,
       noBroadcast(),
-      new SessionQueue(),
+      new SessionQueue(new MetricsService()),
+      new MetricsService(),
     );
   });
 
@@ -105,7 +112,8 @@ describe('SessionService.join', () => {
       eventService,
       {} as SessionRepository,
       noBroadcast(),
-      new SessionQueue(),
+      new SessionQueue(new MetricsService()),
+      new MetricsService(),
     );
 
     await expect(service.join(SESSION_ID, 'user-b')).resolves.toBe(result);
@@ -129,7 +137,8 @@ describe('SessionService.appendEvent', () => {
       eventService,
       {} as SessionRepository,
       noBroadcast(),
-      new SessionQueue(),
+      new SessionQueue(new MetricsService()),
+      new MetricsService(),
     );
   });
 
@@ -174,7 +183,8 @@ describe('SessionService.end', () => {
       eventService,
       {} as SessionRepository,
       noBroadcast(),
-      new SessionQueue(),
+      new SessionQueue(new MetricsService()),
+      new MetricsService(),
     );
 
     await expect(service.end(SESSION_ID, 'user-a')).resolves.toBe(result);
@@ -220,7 +230,8 @@ describe('SessionService.list', () => {
       {} as EventService,
       repo,
       noBroadcast(),
-      new SessionQueue(),
+      new SessionQueue(new MetricsService()),
+      new MetricsService(),
     );
   });
 
@@ -322,7 +333,8 @@ describe('SessionService.requireParticipant', () => {
       {} as EventService,
       repo,
       noBroadcast(),
-      new SessionQueue(),
+      new SessionQueue(new MetricsService()),
+      new MetricsService(),
     );
   });
 
@@ -375,7 +387,8 @@ describe('SessionService.findOnlineParticipants', () => {
       {} as EventService,
       repo,
       noBroadcast(),
-      new SessionQueue(),
+      new SessionQueue(new MetricsService()),
+      new MetricsService(),
     );
 
     await expect(service.findOnlineParticipants()).resolves.toEqual([
@@ -414,7 +427,8 @@ describe('SessionService broadcast', () => {
       eventService,
       repo,
       broadcaster,
-      new SessionQueue(),
+      new SessionQueue(new MetricsService()),
+      new MetricsService(),
     );
   });
 
@@ -532,7 +546,8 @@ describe('SessionService.listEvents', () => {
       {} as EventService,
       repo,
       noBroadcast(),
-      new SessionQueue(),
+      new SessionQueue(new MetricsService()),
+      new MetricsService(),
     );
   });
 
@@ -582,5 +597,71 @@ describe('SessionService.listEvents', () => {
     ).rejects.toMatchObject({ code: 'NOT_PARTICIPANT' });
     expect(repo.findParticipant).toHaveBeenCalledWith(SESSION_ID, 'user-c');
     expect(repo.findEventsAfter).not.toHaveBeenCalled();
+  });
+});
+
+describe('SessionService 메트릭', () => {
+  const appends = (metrics: MetricsService, type: string, result: string) =>
+    readMetric(metrics.registry, 'chat_event_appends_total', { type, result });
+
+  it('생성은 SESSION_CREATED created로 센다', async () => {
+    const metrics = new MetricsService();
+    const service = new SessionService(
+      {
+        createSession: jest
+          .fn()
+          .mockResolvedValue([{ sessionId: SESSION_ID } as EventDto]),
+      } as unknown as EventService,
+      {
+        findById: jest.fn().mockResolvedValue({ id: SESSION_ID }),
+        findParticipants: jest.fn().mockResolvedValue([]),
+      } as unknown as SessionRepository,
+      noBroadcast(),
+      new SessionQueue(metrics),
+      metrics,
+    );
+    jest.spyOn(SessionDto, 'from').mockReturnValue({} as SessionDto);
+
+    await service.create('user-a', '상담 문의');
+    expect(await appends(metrics, EventType.SESSION_CREATED, 'created')).toBe(
+      1,
+    );
+  });
+
+  it('요청한 이벤트 타입과 결과(created, duplicate, rejected)를 센다', async () => {
+    const metrics = new MetricsService();
+    const append = jest
+      .fn()
+      .mockResolvedValueOnce({ event: { seq: 4 } as EventDto, created: true })
+      .mockResolvedValueOnce({ event: { seq: 4 } as EventDto, created: false })
+      .mockRejectedValueOnce(new AppException(ErrorCode.SESSION_FULL));
+    const service = new SessionService(
+      { append } as unknown as EventService,
+      {} as SessionRepository,
+      noBroadcast(),
+      new SessionQueue(metrics),
+      metrics,
+    );
+    const message = {
+      type: EventType.MESSAGE_CREATED,
+      clientEventId: '6f1c1d2e-0000-4000-8000-000000000001',
+      payload: { content: '안녕하세요' },
+    } as AppendEventDto;
+
+    await service.appendEvent(SESSION_ID, 'user-a', message);
+    await service.appendEvent(SESSION_ID, 'user-a', message);
+    await expect(service.join(SESSION_ID, 'user-c')).rejects.toThrow(
+      AppException,
+    );
+
+    expect(await appends(metrics, EventType.MESSAGE_CREATED, 'created')).toBe(
+      1,
+    );
+    expect(await appends(metrics, EventType.MESSAGE_CREATED, 'duplicate')).toBe(
+      1,
+    );
+    expect(
+      await appends(metrics, EventType.PARTICIPANT_JOINED, 'rejected'),
+    ).toBe(1);
   });
 });

@@ -1,4 +1,6 @@
 import { SessionQueue } from './session-queue';
+import { MetricsService } from '../metrics/metrics.service';
+import { readMetric } from '../metrics/read-metric';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -14,9 +16,13 @@ const tick = () => new Promise(setImmediate);
 
 describe('SessionQueue', () => {
   let queue: SessionQueue;
+  let metrics: MetricsService;
+  const pending = () =>
+    readMetric(metrics.registry, 'chat_session_queue_pending');
 
   beforeEach(() => {
-    queue = new SessionQueue();
+    metrics = new MetricsService();
+    queue = new SessionQueue(metrics);
   });
 
   it('같은 세션의 작업은 앞선 작업이 끝난 뒤 호출 순서대로 시작한다', async () => {
@@ -67,5 +73,22 @@ describe('SessionQueue', () => {
     await idle;
     expect(done).toBe(true);
     expect(queue['tails'].size).toBe(0);
+  });
+  it('실행 중이거나 기다리는 작업 수를 메트릭으로 내보내고, 실패한 작업도 끝나면 뺀다', async () => {
+    const first = deferred<void>();
+    const a = queue.run('s1', () => first.promise);
+    const b = queue.run('s1', () => Promise.reject(new Error('fail')));
+    const c = queue.run('s2', () => Promise.resolve());
+    expect(await pending()).toBe(3);
+
+    await c;
+    await tick();
+    expect(await pending()).toBe(2);
+
+    first.resolve();
+    await a;
+    await expect(b).rejects.toThrow('fail');
+    await queue.idle();
+    expect(await pending()).toBe(0);
   });
 });

@@ -10,6 +10,7 @@ import {
 import { Broadcaster } from '../realtime/broadcaster';
 import { SessionQueue } from '../realtime/session-queue';
 import { EventDto } from '../event/dto/event.dto';
+import { MetricsService } from '../metrics/metrics.service';
 import { AppendEventDto } from './dto/append-event.dto';
 import {
   DEFAULT_EVENTS_LIMIT,
@@ -33,14 +34,21 @@ export class SessionService {
     private readonly sessionRepository: SessionRepository,
     private readonly broadcaster: Broadcaster,
     private readonly sessionQueue: SessionQueue,
+    private readonly metrics: MetricsService,
   ) {}
 
   // 저장은 EventService가 하고, 응답은 커밋된 프로젝션에서 만든다.
   async create(userId: string, title: string): Promise<SessionDto> {
-    const events = await this.eventService.createSession({
-      title,
-      actorId: userId,
-    });
+    const { events } = await this.metrics.observeAppend(
+      EventType.SESSION_CREATED,
+      async () => ({
+        created: true,
+        events: await this.eventService.createSession({
+          title,
+          actorId: userId,
+        }),
+      }),
+    );
     // 생성 직후에는 구독자가 있을 수 없지만, 커밋된 모든 이벤트를 같은 경로로 전달한다.
     // 새 세션 ID는 아직 아무도 모르므로 같은 세션의 다른 쓰기와 겹치지 않아 세션 큐가 필요 없다.
     this.broadcaster.broadcast(events);
@@ -161,7 +169,9 @@ export class SessionService {
     input: AppendEventInput,
   ): Promise<AppendEventResult> {
     return this.sessionQueue.run(sessionId, async () => {
-      const result = await this.eventService.append(sessionId, input);
+      const result = await this.metrics.observeAppend(input.type, () =>
+        this.eventService.append(sessionId, input),
+      );
       if (result.created) {
         this.broadcaster.broadcast([result.event]);
       }

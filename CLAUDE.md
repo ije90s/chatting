@@ -67,7 +67,8 @@ src/
   projection/   스냅샷, 타임라인 복원
   realtime/     ChatGateway(구독, presence), PresenceTracker(구독 수),
                 BroadcastModule: Broadcaster(전달만 담당), SessionQueue(세션별 저장·전달 순서)
-  metrics/      MetricsModule(전역): Prometheus Registry, GET /metrics, HTTP 지연 미들웨어
+  metrics/      MetricsModule(전역): Prometheus Registry, GET /metrics, HTTP 지연 미들웨어,
+                도메인 메트릭(저장 결과·지연은 호출하는 쪽에서 observeAppend로 기록)
   common/       에러 코드, 사용자 식별, 공통 DTO
 ```
 

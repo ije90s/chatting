@@ -28,7 +28,9 @@ async function countOf(
   const sample = metric.values.find(
     (v) =>
       v.metricName === 'http_request_duration_seconds_count' &&
-      Object.entries(labels).every(([k, value]) => v.labels[k] === value),
+      Object.entries(labels).every(
+        ([k, value]) => (v.labels as Record<string, unknown>)[k] === value,
+      ),
   );
   return sample?.value ?? 0;
 }

@@ -16,13 +16,13 @@
 
 ## 최신 결과 요약
 
-기준: 2026-10-20, 8단계 진행 중 (`GET /metrics` 완료)
+기준: 2026-10-20, 8단계 진행 중 (`GET /metrics`, 도메인 메트릭 완료)
 
 | 종류 | 결과 |
 |---|---|
-| 단위 | 170 / 170 통과 (18개 파일) |
+| 단위 | 178 / 178 통과 (18개 파일) |
 | 통합 | 13 / 13 통과 (2개 파일) |
-| e2e | 115 / 115 통과 (5개 파일) |
+| e2e | 116 / 116 통과 (5개 파일) |
 | lint, build | 통과 |
 
 ### 커버리지 (핵심 로직)
@@ -38,6 +38,8 @@
 | `realtime/session-queue.ts` | 100% | 100% | |
 | `realtime/presence-tracker.ts` | 100% | 100% | |
 | `realtime/broadcaster.ts` | 100% | 75% | 남은 분기: Error가 아닌 값이 던져진 경우의 로그 |
+| `metrics/metrics.service.ts` | 100% | 100% | |
+| `metrics/http-metrics.middleware.ts` | 100% | 88% | 남은 분기: Nest가 넘기는 `next`가 없는 경우 |
 | `realtime/chat.gateway.ts` | 95% | 82% | `afterInit`, `handleConnection`은 e2e에서 실행 |
 | `realtime/socket-auth.ts` | 100% | 100% | |
 | `common/errors/http-exception.filter.ts` | 84% | 80% | `catch()`의 응답 쓰기는 e2e에서 실행 |
@@ -346,4 +348,14 @@ e2e (실제 테스트 DB):
 - `MetricsService`: 기본 Node 메트릭과 HTTP histogram을 Prometheus 텍스트로 내보내고, 인스턴스마다 Registry가 따로 있어 여러 번 만들어도 충돌하지 않는다.
 - e2e: `X-User-Id` 없이 `200 text/plain`, 공통 형식으로 감싸지 않는다. `/sessions/{서로 다른 id}/events` 401 두 건이 `route="/sessions/:id/events"` 한 시계열로 2가 되고, 없는 경로 404는 `route="unmatched"`, 요청 경로 원문(세션 ID)은 라벨에 나타나지 않는다. `GET /`는 여전히 공통 형식이다.
 - 변이 검증: `@RawResponse()` 확인을 끄면 단위 1건 실패, 라벨을 요청 경로 원문(`originalUrl`)으로 바꾸면 e2e 1건 실패.
+
+### 도메인 메트릭 — 단위 8, e2e 1
+- `MetricsService.observeAppend`: `created: true`는 `created`, `false`는 `duplicate`, `AppException`은 `rejected`, 그 밖의 예외는 `error`로 세고 결과와 예외를 그대로 돌려준다. 결과와 관계없이 저장 시간을 한 번 기록한다.
+- `SessionService`: 생성은 `SESSION_CREATED`/`created`, 메시지 재전송은 `MESSAGE_CREATED`/`duplicate`, 정원 초과 참여는 `PARTICIPANT_JOINED`/`rejected`.
+- `ChatGateway`: 연결·끊김으로 `chat_socket_connections`가 늘고 준다. presence 저장도 타입·결과별로 센다(`PRESENCE_ONLINE`/`created`, `PRESENCE_OFFLINE`/`rejected`).
+- `SessionQueue`: 실행 중·대기 작업 수(세션 2개, 작업 3개 → 3)가 작업이 끝날 때마다 줄고, 실패한 작업도 끝나면 빠져 0이 된다.
+- `Broadcaster`: 전달 실패 1건이 `chat_broadcast_failures_total` 1로 기록된다.
+- e2e: 생성 → 참여 → 정원 초과 참여(409) → 메시지 → 같은 `clientEventId` 재전송(200)을 보내면 `/metrics`의 증가분이 각각 1이고, 큐 대기 수는 0, 세션 ID는 메트릭에 나타나지 않는다.
+- 변이 검증: `rejected` 분류를 없애면 단위 3건, 큐 감소를 없애면 1건, 연결 수 감소를 없애면 1건 실패.
+- 결함 수정: 앞 항목의 `http-metrics.middleware.spec.ts`가 `tsc` 전체 검사에서 라벨 인덱싱 타입 오류를 냈다(jest·build는 통과). 같이 고쳤다.
 

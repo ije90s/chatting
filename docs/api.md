@@ -405,7 +405,13 @@ REST 응답과 socket 전달에서 같은 형식을 사용한다.
 | 메트릭 | 종류 | 라벨 | 설명 |
 |---|---|---|---|
 | `http_request_duration_seconds` | histogram | `method`, `route`, `status` | REST 요청 처리 시간. `route`는 라우트 패턴(`/sessions/:id/join`)이고, 매칭되지 않은 경로는 `unmatched`로 묶는다. `/metrics` 자체는 기록하지 않는다. |
+| `chat_event_appends_total` | counter | `type`, `result` | 이벤트 저장 요청 수. `type`은 요청한 이벤트 타입(생성은 `SESSION_CREATED`), `result`는 `created`(새로 저장) / `duplicate`(같은 `clientEventId`, 이미 반영된 join·leave·end) / `rejected`(도메인 규칙 위반, 4xx) / `error`(그 밖의 실패) |
+| `chat_event_append_duration_seconds` | histogram | `type` | 세션 잠금부터 커밋까지 저장 시간. 세션 큐 대기는 포함하지 않는다. 같은 세션 행 잠금 경합이 늘면 이 값이 먼저 커진다. |
+| `chat_broadcast_failures_total` | counter | — | 커밋 후 socket 전달에 실패한 이벤트 수. 요청 결과는 바뀌지 않고, 클라이언트는 누락 조회로 복구한다. |
+| `chat_socket_connections` | gauge | — | 현재 `/chat` 연결 수 |
+| `chat_session_queue_pending` | gauge | — | 세션 큐에서 실행 중이거나 기다리는 작업 수 |
 | `process_*`, `nodejs_*` | — | — | `prom-client` 기본 메트릭 (CPU, 메모리, 이벤트 루프 지연, GC) |
 
 - 세션 ID, 사용자 ID처럼 값이 계속 늘어나는 값은 라벨로 쓰지 않는다.
+- 저장 메트릭은 `EventService`가 아니라 호출하는 쪽(`SessionService`, `ChatGateway`의 presence 저장)에서 `MetricsService.observeAppend()`로 기록한다. 쓰기 경로에는 메트릭 의존성을 넣지 않는다.
 
