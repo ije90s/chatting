@@ -323,3 +323,23 @@ describe('SessionService.requireParticipant', () => {
     ).rejects.toMatchObject({ code: 'NOT_PARTICIPANT' });
   });
 });
+
+describe('SessionService.findOnlineParticipants', () => {
+  it('ONLINE 참여자의 세션·사용자만 돌려준다', async () => {
+    const repo = {
+      findByPresence: jest.fn().mockResolvedValue([
+        {
+          sessionId: SESSION_ID,
+          userId: 'user-a',
+          presence: Presence.ONLINE,
+        } as Participant,
+      ]),
+    } as unknown as jest.Mocked<SessionRepository>;
+    const service = new SessionService({} as EventService, repo);
+
+    await expect(service.findOnlineParticipants()).resolves.toEqual([
+      { sessionId: SESSION_ID, userId: 'user-a' },
+    ]);
+    expect(repo.findByPresence).toHaveBeenCalledWith('ONLINE');
+  });
+});

@@ -327,9 +327,12 @@ REST 응답과 socket 전달에서 같은 형식을 사용한다.
 - 실패 코드: `VALIDATION_ERROR`(`sessionId`가 비어 있지 않은 문자열이 아님), `SESSION_NOT_FOUND`, `NOT_PARTICIPANT`, `INTERNAL_ERROR`.
 
 **presence**
-- `session:subscribe`가 성공하고 그 사용자의 해당 세션 연결이 처음이면 `PRESENCE_ONLINE`을 저장한다.
-- 그 사용자의 해당 세션 연결이 모두 끊기면 `PRESENCE_OFFLINE`을 저장한다(여러 탭 고려).
+- `session:subscribe`가 성공하고 그 사용자의 해당 세션 구독이 처음이면 `PRESENCE_ONLINE`을 저장한다.
+- 그 사용자의 해당 세션 구독이 모두 끝나면 `PRESENCE_OFFLINE`을 저장한다(여러 탭 고려). `session:unsubscribe`와 연결 끊김 모두 구독이 끝난 것으로 본다.
 - Gateway가 `EventService`를 직접 호출해 저장한다. seq를 받으므로 타임라인 복원에 포함된다.
+- 같은 사용자·세션의 presence 저장은 발생 순서대로 하나씩 처리한다(ONLINE과 OFFLINE의 순서가 뒤집히지 않게).
+- presence 저장이 실패해도 구독 결과는 바뀌지 않고 서버 로그만 남는다.
+- 구독 상태는 서버 메모리에서 센다(단일 인스턴스 기준). 재시작하면 사라지므로, 서버는 연결을 받기 전에 `ONLINE`으로 남은 참여자마다 `PRESENCE_OFFLINE`을 저장한다.
 
 ## 6. 순서 처리 기준
 

@@ -7,6 +7,7 @@ import request from 'supertest';
 import { DataSource } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { AppModule } from '../src/app.module';
+import { ChatGateway } from '../src/realtime/chat.gateway';
 
 // 실제 서버를 띄워 socket.io 클라이언트로 접속한다.
 describe('ChatGateway (e2e)', () => {
@@ -33,8 +34,20 @@ describe('ChatGateway (e2e)', () => {
     await dataSource.query('DELETE FROM sessions');
   });
 
-  afterEach(() => {
+  // 연결 끊김의 PRESENCE_OFFLINE 저장이 끝난 뒤에 다음 테스트가 테이블을 비우게 한다.
+  afterEach(async () => {
     sockets.splice(0).forEach((socket) => socket.disconnect());
+    const gateway = app.get(ChatGateway);
+    const deadline = Date.now() + 2000;
+    while (
+      gateway['presence']['subscriptions'].size > 0 ||
+      gateway['presenceQueue'].size > 0
+    ) {
+      if (Date.now() > deadline) {
+        throw new Error('presence 처리가 끝나지 않았습니다.');
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
   });
 
   afterAll(() => app.close());
@@ -148,6 +161,127 @@ describe('ChatGateway (e2e)', () => {
           sessionId: '0192a3b4-0000-7000-8000-000000000000',
         }),
       ).resolves.toMatchObject({ code: 'SESSION_NOT_FOUND' });
+    });
+  });
+
+  describe('presence', () => {
+    async function createSession(): Promise<string> {
+      const res = await request(app.getHttpServer())
+        .post('/sessions')
+        .set('X-User-Id', 'user-a')
+        .send({ title: '상담 문의' })
+        .expect(201);
+      return (res.body as { data: { id: string } }).data.id;
+    }
+
+    async function subscribed(sessionId: string): Promise<Socket> {
+      const socket = connect({ userId: 'user-a' });
+      await outcome(socket);
+      await socket.emitWithAck('session:subscribe', { sessionId });
+      return socket;
+    }
+
+    async function presenceEvents(sessionId: string): Promise<string[]> {
+      const rows = await dataSource.query<{ type: string }[]>(
+        "SELECT type FROM messages WHERE session_id = ? AND type LIKE 'PRESENCE_%' ORDER BY seq",
+        [sessionId],
+      );
+      return rows.map((row) => row.type);
+    }
+
+    async function presenceOf(sessionId: string): Promise<string> {
+      const [row] = await dataSource.query<{ presence: string }[]>(
+        "SELECT presence FROM participants WHERE session_id = ? AND user_id = 'user-a'",
+        [sessionId],
+      );
+      return row.presence;
+    }
+
+    // 연결 끊김은 서버가 비동기로 처리하므로 조건이 맞을 때까지 기다린다.
+    async function eventually(check: () => Promise<void>): Promise<void> {
+      const deadline = Date.now() + 2000;
+      for (;;) {
+        try {
+          return await check();
+        } catch (error) {
+          if (Date.now() > deadline) {
+            throw error;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+      }
+    }
+
+    it('첫 구독에 ONLINE, 모든 탭의 연결이 끊기면 OFFLINE을 저장한다', async () => {
+      const sessionId = await createSession();
+      const tab1 = await subscribed(sessionId);
+      const tab2 = await subscribed(sessionId);
+      expect(await presenceEvents(sessionId)).toEqual(['PRESENCE_ONLINE']);
+      expect(await presenceOf(sessionId)).toBe('ONLINE');
+
+      tab1.disconnect();
+      // 한 탭이 남아 있으면 OFFLINE이 아니다.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(await presenceEvents(sessionId)).toEqual(['PRESENCE_ONLINE']);
+
+      tab2.disconnect();
+      await eventually(async () => {
+        expect(await presenceEvents(sessionId)).toEqual([
+          'PRESENCE_ONLINE',
+          'PRESENCE_OFFLINE',
+        ]);
+      });
+      expect(await presenceOf(sessionId)).toBe('OFFLINE');
+    });
+
+    it('구독을 해제해도 마지막이면 OFFLINE, 다시 구독하면 ONLINE이다', async () => {
+      const sessionId = await createSession();
+      const socket = await subscribed(sessionId);
+      await socket.emitWithAck('session:unsubscribe', { sessionId });
+      expect(await presenceOf(sessionId)).toBe('OFFLINE');
+
+      await socket.emitWithAck('session:subscribe', { sessionId });
+      expect(await presenceEvents(sessionId)).toEqual([
+        'PRESENCE_ONLINE',
+        'PRESENCE_OFFLINE',
+        'PRESENCE_ONLINE',
+      ]);
+    });
+
+    it('presence 이벤트도 seq를 받아 타임라인 복원에 포함된다', async () => {
+      const sessionId = await createSession();
+      await subscribed(sessionId);
+      const res = await request(app.getHttpServer())
+        .get(`/sessions/${sessionId}/timeline`)
+        .set('X-User-Id', 'user-a')
+        .query({ at: '2999-01-01T00:00:00.000Z' })
+        .expect(200);
+      expect(
+        (res.body as { data: { seq: number; state: unknown } }).data,
+      ).toMatchObject({
+        seq: 3,
+        state: { participants: [{ userId: 'user-a', presence: 'ONLINE' }] },
+      });
+    });
+
+    it('서버가 시작할 때 ONLINE으로 남은 참여자를 OFFLINE으로 기록한다', async () => {
+      const sessionId = await createSession();
+      await subscribed(sessionId);
+      expect(await presenceOf(sessionId)).toBe('ONLINE');
+
+      // 재시작을 흉내 낸다: 새 앱 인스턴스는 이 연결을 모른다.
+      const moduleRef = await Test.createTestingModule({
+        imports: [AppModule],
+      }).compile();
+      const restarted = moduleRef.createNestApplication();
+      await restarted.init();
+      await restarted.close();
+
+      expect(await presenceEvents(sessionId)).toEqual([
+        'PRESENCE_ONLINE',
+        'PRESENCE_OFFLINE',
+      ]);
+      expect(await presenceOf(sessionId)).toBe('OFFLINE');
     });
   });
 });

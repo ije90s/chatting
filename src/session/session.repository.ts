@@ -4,7 +4,7 @@ import { In, Repository } from 'typeorm';
 import { Participant } from './entities/participant.entity';
 import { Session } from './entities/session.entity';
 import type { SessionCursor } from './session-cursor';
-import { SessionStatus } from './session-status';
+import { Presence, SessionStatus } from './session-status';
 
 export interface SessionListFilter {
   statuses?: SessionStatus[];
@@ -31,6 +31,10 @@ export class SessionRepository {
 
   findParticipant(sessionId: string, userId: string) {
     return this.participants.findOneBy({ sessionId, userId });
+  }
+
+  findByPresence(presence: Presence) {
+    return this.participants.findBy({ presence });
   }
 
   // reducer 상태와 같은 순서(joined_at, user_id)

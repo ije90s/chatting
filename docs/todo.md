@@ -38,7 +38,7 @@
 
 - [x] `@nestjs/websockets`, `@nestjs/platform-socket.io` 추가, `ChatGateway` (`/chat`, handshake `userId`)
 - [x] `session:subscribe` / `session:unsubscribe`
-- [ ] presence: 첫 연결 시 `PRESENCE_ONLINE`, 연결이 모두 끊기면 `PRESENCE_OFFLINE`
+- [x] presence: 첫 연결 시 `PRESENCE_ONLINE`, 연결이 모두 끊기면 `PRESENCE_OFFLINE`
 - [ ] 커밋 후 `session:event` broadcast (중복 요청은 broadcast하지 않음)
 
 ## 7. 마무리

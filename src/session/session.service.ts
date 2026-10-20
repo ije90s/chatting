@@ -11,6 +11,7 @@ import {
 } from './dto/list-sessions.dto';
 import { SessionDto } from './dto/session.dto';
 import { decodeCursor, encodeCursor } from './session-cursor';
+import { Presence } from './session-status';
 import { SessionRepository } from './session.repository';
 
 @Injectable()
@@ -75,6 +76,16 @@ export class SessionService {
     if (!participant) {
       throw new AppException(ErrorCode.NOT_PARTICIPANT);
     }
+  }
+
+  // 서버 시작 시 presence 정리에 쓴다.
+  async findOnlineParticipants(): Promise<
+    { sessionId: string; userId: string }[]
+  > {
+    const participants = await this.sessionRepository.findByPresence(
+      Presence.ONLINE,
+    );
+    return participants.map(({ sessionId, userId }) => ({ sessionId, userId }));
   }
 
   // 한 건 더 읽어 다음 페이지가 있는지 판단한다.
