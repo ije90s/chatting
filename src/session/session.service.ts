@@ -29,6 +29,14 @@ export class SessionService {
     });
   }
 
+  // 이미 END면 기존 SESSION_ENDED 이벤트를 돌려준다(created: false). 다른 참여자가 종료했어도 같다.
+  end(sessionId: string, userId: string): Promise<AppendEventResult> {
+    return this.eventService.append(sessionId, {
+      type: EventType.SESSION_ENDED,
+      actorId: userId,
+    });
+  }
+
   // 메시지, 나가기. 같은 clientEventId나 이미 나간 사용자의 나가기는 기존 이벤트를 돌려준다(created: false).
   appendEvent(
     sessionId: string,

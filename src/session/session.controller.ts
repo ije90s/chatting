@@ -94,4 +94,25 @@ export class SessionController {
     res.status(created ? HttpStatus.CREATED : HttpStatus.OK);
     return event;
   }
+
+  @Post(':id/end')
+  @ApiOperation({
+    summary: '종료',
+    description:
+      'JOIN 또는 LEAVE 세션을 END로 바꾼다. 참여 중인(나가지 않은) 사용자만 호출할 수 있다. 이미 END면 기존 이벤트를 200으로 돌려준다.',
+  })
+  @ApiSuccessResponse(EventDto, HttpStatus.CREATED, '새로 종료')
+  @ApiSuccessResponse(EventDto, HttpStatus.OK, '이미 종료됨 (기존 이벤트)')
+  @ApiErrorResponse(HttpStatus.UNAUTHORIZED, ErrorCode.UNAUTHORIZED)
+  @ApiErrorResponse(HttpStatus.FORBIDDEN, ErrorCode.NOT_PARTICIPANT)
+  @ApiErrorResponse(HttpStatus.NOT_FOUND, ErrorCode.SESSION_NOT_FOUND)
+  async end(
+    @UserId() userId: string,
+    @Param('id') sessionId: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<EventDto> {
+    const { event, created } = await this.sessionService.end(sessionId, userId);
+    res.status(created ? HttpStatus.CREATED : HttpStatus.OK);
+    return event;
+  }
 }

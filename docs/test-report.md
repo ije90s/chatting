@@ -16,13 +16,13 @@
 
 ## 최신 결과 요약
 
-기준: 2026-10-20, 5단계 `POST /sessions/{id}/events` 완료
+기준: 2026-10-20, 5단계 `POST /sessions/{id}/end` 완료
 
 | 종류 | 결과 |
 |---|---|
-| 단위 | 88 / 88 통과 (9개 파일) |
+| 단위 | 89 / 89 통과 (9개 파일) |
 | 통합 | 13 / 13 통과 (2개 파일) |
-| e2e | 50 / 50 통과 (2개 파일) |
+| e2e | 56 / 56 통과 (2개 파일) |
 | lint, build | 통과 |
 
 ### 커버리지 (핵심 로직)
@@ -150,7 +150,7 @@ e2e (실제 테스트 DB):
 단위:
 - 요청자의 `PARTICIPANT_JOINED`를 `EventService.append`에 넘기고 결과(`event`, `created`)를 그대로 돌려준다.
 
-e2e (실제 테스트 DB, 나가기는 REST, 종료 상태는 `EventService`로 만든다):
+e2e (실제 테스트 DB, 나가기·종료 상태도 REST로 만든다):
 - 새로 참여하면 `201`과 seq 3 `PARTICIPANT_JOINED` 이벤트(이벤트 공통 형식)를 돌려주고 `participant_count`가 2가 된다.
 - 이미 참여 중이면 `200`으로 기존 이벤트를 돌려주고 새로 저장하지 않는다. 생성자는 seq 2 이벤트를 받는다.
 - 세 번째 사용자는 `409 SESSION_FULL`, 나간 사용자는 `409 ALREADY_LEFT`.
@@ -171,4 +171,15 @@ e2e (실제 테스트 DB):
 - 나간 사용자의 메시지는 `409 ALREADY_LEFT`, 남은 사용자의 메시지는 `409 INVALID_SESSION_STATUS`.
 - 참여자가 아니면 메시지와 나가기 모두 `403 NOT_PARTICIPANT`.
 - 검증 실패 14가지(`clientEventId` 없음·UUID 아님, `type` 없음·`PARTICIPANT_JOINED`·`PRESENCE_ONLINE`, 메시지 payload 없음·빈 content·공백만 있는 content·5001자 content·문자열 아닌 content·payload의 정의되지 않은 필드, 비어 있지 않은 나가기 payload, ISO-8601 아닌 `clientSentAt`, 정의되지 않은 필드)는 `400 VALIDATION_ERROR`이고 저장하지 않는다.
+- 없는 세션은 `404 SESSION_NOT_FOUND`, `X-User-Id`가 없으면 `401 UNAUTHORIZED`.
+
+### `POST /sessions/{id}/end` — 단위 1, e2e 6
+단위:
+- 요청자의 `SESSION_ENDED`를 `EventService.append`에 넘기고 결과를 그대로 돌려준다.
+
+e2e (실제 테스트 DB):
+- `JOIN` 세션을 종료하면 `201`과 seq 4 `SESSION_ENDED` 이벤트를 돌려주고, 세션은 `END`, `ended_at`이 기록된다.
+- `LEAVE` 세션은 남은 참여자가 종료할 수 있다.
+- 이미 `END`면 다른 참여자가 호출해도 `200`으로 처음 이벤트를 돌려주고 새로 저장하지 않는다.
+- 나간 사용자와 참여자가 아닌 사용자는 종료 전후 모두 `403 NOT_PARTICIPANT`.
 - 없는 세션은 `404 SESSION_NOT_FOUND`, `X-User-Id`가 없으면 `401 UNAUTHORIZED`.

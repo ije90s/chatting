@@ -5,8 +5,6 @@ import { App } from 'supertest/types';
 import { DataSource } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { AppModule } from '../src/app.module';
-import { EventType } from '../src/event/event-type';
-import { EventService } from '../src/event/event.service';
 
 interface Body {
   success: boolean;
@@ -18,7 +16,6 @@ interface Body {
 describe('Sessions (e2e)', () => {
   let app: INestApplication<App>;
   let dataSource: DataSource;
-  let eventService: EventService;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -27,7 +24,6 @@ describe('Sessions (e2e)', () => {
     app = moduleRef.createNestApplication();
     await app.init();
     dataSource = app.get(DataSource);
-    eventService = app.get(EventService);
   });
 
   beforeEach(async () => {
@@ -187,12 +183,12 @@ describe('Sessions (e2e)', () => {
     }).expect(201);
   }
 
-  // end 엔드포인트가 생기기 전까지는 EventService로 종료한다.
+  function postEnd(sessionId: string, userId: string) {
+    return http().post(`/sessions/${sessionId}/end`).set('X-User-Id', userId);
+  }
+
   function end(sessionId: string, userId: string) {
-    return eventService.append(sessionId, {
-      type: EventType.SESSION_ENDED,
-      actorId: userId,
-    });
+    return postEnd(sessionId, userId).expect(201);
   }
 
   describe('POST /sessions/{id}/join', () => {
@@ -564,6 +560,80 @@ describe('Sessions (e2e)', () => {
           payload: { content: '안녕' },
         })
         .expect(401);
+      expect((res.body as Body).code).toBe('UNAUTHORIZED');
+    });
+  });
+
+  describe('POST /sessions/{id}/end', () => {
+    async function sessionRow(sessionId: string) {
+      const [row] = await dataSource.query<
+        { status: string; ended_at: Date | null }[]
+      >('SELECT status, ended_at FROM sessions WHERE id = ?', [sessionId]);
+      return row;
+    }
+
+    it('JOIN 세션을 종료하면 201과 SESSION_ENDED 이벤트를 돌려주고 END가 된다', async () => {
+      const sessionId = await createWithTwo();
+      const res = await end(sessionId, 'user-b');
+      expect((res.body as Body).data).toEqual({
+        eventId: expect.any(Number) as number,
+        sessionId,
+        seq: 4,
+        type: 'SESSION_ENDED',
+        actorId: 'user-b',
+        clientEventId: null,
+        payload: {},
+        clientSentAt: null,
+        receivedAt: expect.stringMatching(/^\d{4}-.+\.\d{3}Z$/) as string,
+      });
+
+      const row = await sessionRow(sessionId);
+      expect(row.status).toBe('END');
+      expect(row.ended_at).not.toBeNull();
+    });
+
+    it('LEAVE 세션은 남은 참여자가 종료할 수 있다', async () => {
+      const sessionId = await createWithTwo();
+      await leave(sessionId, 'user-b');
+      await end(sessionId, 'user-a');
+      expect((await sessionRow(sessionId)).status).toBe('END');
+    });
+
+    it('이미 END면 200으로 기존 이벤트를 돌려주고 새로 저장하지 않는다', async () => {
+      const sessionId = await createWithTwo();
+      const first = await end(sessionId, 'user-a');
+
+      // 다른 참여자가 다시 종료해도 처음 이벤트다.
+      const again = await postEnd(sessionId, 'user-b').expect(200);
+      expect((again.body as Body).data).toEqual((first.body as Body).data);
+      expect(await countEvents(sessionId)).toBe(4);
+    });
+
+    it('나간 사용자와 참여자가 아닌 사용자는 403 NOT_PARTICIPANT', async () => {
+      const sessionId = await createWithTwo();
+      await leave(sessionId, 'user-b');
+
+      for (const userId of ['user-b', 'user-c']) {
+        const res = await postEnd(sessionId, userId).expect(403);
+        expect((res.body as Body).code).toBe('NOT_PARTICIPANT');
+      }
+      // 종료된 뒤에도 같다.
+      await end(sessionId, 'user-a');
+      const res = await postEnd(sessionId, 'user-b').expect(403);
+      expect((res.body as Body).code).toBe('NOT_PARTICIPANT');
+    });
+
+    it('없는 세션은 404 SESSION_NOT_FOUND', async () => {
+      const res = await postEnd(
+        '0192a3b4-0000-7000-8000-000000000000',
+        'user-a',
+      ).expect(404);
+      expect((res.body as Body).code).toBe('SESSION_NOT_FOUND');
+    });
+
+    it('X-User-Id가 없으면 401 UNAUTHORIZED', async () => {
+      const sessionId = await createSession();
+      const res = await http().post(`/sessions/${sessionId}/end`).expect(401);
       expect((res.body as Body).code).toBe('UNAUTHORIZED');
     });
   });

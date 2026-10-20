@@ -140,3 +140,19 @@ describe('SessionService.appendEvent', () => {
     });
   });
 });
+
+describe('SessionService.end', () => {
+  it('요청자의 SESSION_ENDED를 EventService에 넘기고 결과를 그대로 돌려준다', async () => {
+    const result = { event: { seq: 4 } as EventDto, created: false };
+    const eventService = {
+      append: jest.fn().mockResolvedValue(result),
+    } as unknown as jest.Mocked<EventService>;
+    const service = new SessionService(eventService, {} as SessionRepository);
+
+    await expect(service.end(SESSION_ID, 'user-a')).resolves.toBe(result);
+    expect(eventService.append).toHaveBeenCalledWith(SESSION_ID, {
+      type: EventType.SESSION_ENDED,
+      actorId: 'user-a',
+    });
+  });
+});
