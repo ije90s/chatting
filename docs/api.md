@@ -334,6 +334,20 @@ REST 응답과 socket 전달에서 같은 형식을 사용한다.
 - presence 저장이 실패해도 구독 결과는 바뀌지 않고 서버 로그만 남는다.
 - 구독 상태는 서버 메모리에서 센다(단일 인스턴스 기준). 재시작하면 사라지므로, 서버는 연결을 받기 전에 `ONLINE`으로 남은 참여자마다 `PRESENCE_OFFLINE`을 저장한다.
 
+**단일 인스턴스 제약 (수평 확장 시)**
+
+현재 실시간 계층은 서버 한 대를 전제로 한다. 여러 대로 늘리면 아래 세 가지를 바꿔야 한다. seq 부여, 중복 방지, 상태 전이는 DB 행 잠금과 UNIQUE 제약으로 처리하므로 영향이 없다.
+
+| 대상 | 현재 | 여러 대일 때 문제 | 바꿀 방향 |
+|---|---|---|---|
+| broadcast | socket.io room이 프로세스 메모리에 있다 | 다른 서버에 연결된 구독자는 이벤트를 받지 못한다 | socket.io adapter로 서버 간 emit을 중계한다. MariaDB용 adapter는 없으므로 Redis adapter를 쓴다. |
+| presence 구독 수 | 사용자·세션별 구독 소켓 수를 프로세스 메모리에서 센다 | 다른 서버에 남은 탭을 몰라 OFFLINE을 잘못 저장한다 | Redis 공유 카운터, 또는 adapter의 `fetchSockets()`로 전체 서버의 구독 여부를 확인한다. |
+| 시작 시 presence 정리 | 시작할 때 `ONLINE`인 참여자를 모두 `OFFLINE`으로 기록한다 | 한 대만 재시작해도 다른 서버의 정상 연결까지 `OFFLINE`이 된다 | 연결마다 서버 ID를 기록해 자기 서버의 연결만 정리하거나, TTL·하트비트로 응답이 끊긴 연결만 정리한다. |
+
+- Redis 하나를 추가하면 broadcast와 presence 구독 수를 함께 해결할 수 있다.
+- broadcast는 `Broadcaster`를 통해서만 내보내므로, adapter를 붙여도 이벤트 저장 코드는 바뀌지 않는다.
+- socket.io의 HTTP long-polling을 쓰려면 로드 밸런서에 sticky session이 필요하다. WebSocket 전송만 쓰면 필요 없다.
+
 ## 6. 순서 처리 기준
 
 - 정식 순서는 서버가 세션별로 부여하는 `seq`다. 세션 행을 잠근 뒤 `last_seq + 1`을 부여하므로 동시 요청도 순서대로 직렬화된다.
