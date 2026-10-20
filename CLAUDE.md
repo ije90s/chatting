@@ -46,7 +46,7 @@ NestJS 11 기준이다. `@nestjs/*` 패키지를 추가할 때는 11과 호환�
 4. **정식 순서는 세션별 `seq`다.** 세션 행을 `SELECT ... FOR UPDATE`로 잠근 뒤 `last_seq + 1`을 부여한다. `client_sent_at`은 정렬이나 복원에 쓰지 않는다.
 5. **중복은 `clientEventId`로 막는다.** 이미 저장된 키면 새로 저장하지 않고 기존 이벤트를 돌려준다.
 6. **이벤트와 프로젝션은 한 트랜잭션에서 저장한다.** 이벤트 로그인 `messages`(채팅 + 시스템 메시지)는 append-only이며 UPDATE/DELETE하지 않는다.
-7. **broadcast는 커밋 후에 한다.**
+7. **broadcast는 커밋 후에, 같은 세션 안에서는 seq 순서로 한다.** 저장(커밋)과 broadcast를 세션별 큐(`SessionQueue`)에서 한 작업으로 실행한다.
 8. **상태 전이는 순수 함수 reducer에 둔다.** `reduce(state, event) → state`를 실시간 처리, 프로젝션 갱신, 타임라인 복원이 함께 사용한다. reducer에는 DB나 시계 접근을 넣지 않는다.
 
 ## 도메인 요약

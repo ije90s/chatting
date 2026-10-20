@@ -19,6 +19,7 @@ import { EventService } from '../event/event.service';
 import { SessionService } from '../session/session.service';
 import { Broadcaster, sessionRoom } from './broadcaster';
 import { PresenceKey, PresenceTracker } from './presence-tracker';
+import { SessionQueue } from './session-queue';
 import { authenticateSocket } from './socket-auth';
 import type { ChatSocket } from './socket-auth';
 
@@ -41,14 +42,12 @@ export class ChatGateway
   // REST와 같은 규칙으로 예외를 { success: false, code, message }로 바꾼다.
   private readonly errorMapper = new HttpExceptionFilter();
   private readonly presence = new PresenceTracker();
-  // 같은 사용자·세션의 presence 저장을 호출 순서대로 직렬화한다. 그렇지 않으면 ONLINE과
-  // OFFLINE이 거의 동시에 들어올 때 세션 잠금을 얻는 순서가 바뀌어 최종 상태가 뒤집힐 수 있다.
-  private readonly presenceQueue = new Map<string, Promise<void>>();
 
   constructor(
     private readonly sessionService: SessionService,
     private readonly eventService: EventService,
     private readonly broadcaster: Broadcaster,
+    private readonly sessionQueue: SessionQueue,
   ) {}
 
   // 메모리의 연결 정보는 재시작하면 사라진다. 연결을 받기 전에 ONLINE으로 남은 참여자를 OFFLINE으로 기록한다.
@@ -57,7 +56,7 @@ export class ChatGateway
     for (const key of online) {
       void this.recordPresence(key, EventType.PRESENCE_OFFLINE);
     }
-    await Promise.all(this.presenceQueue.values());
+    await this.sessionQueue.idle();
     if (online.length > 0) {
       this.logger.log(`presence 정리: ${online.length}명을 OFFLINE으로 기록`);
     }
@@ -125,37 +124,25 @@ export class ChatGateway
     }
   }
 
-  // 실패해도 구독 결과에는 영향을 주지 않고 로그만 남긴다.
+  // REST 쓰기와 같은 세션 큐에 넣는다. 호출 순서대로 저장되므로 ONLINE과 OFFLINE이 뒤집히지 않고,
+  // broadcast도 다른 이벤트와 seq 순서로 나간다. 실패해도 구독 결과에는 영향을 주지 않고 로그만 남긴다.
   private recordPresence(key: PresenceKey, type: PresenceType): Promise<void> {
-    const queueKey = `${key.sessionId}:${key.userId}`;
-    const previous = this.presenceQueue.get(queueKey) ?? Promise.resolve();
-    const next = previous
-      .then(() =>
-        this.eventService.append(key.sessionId, {
-          type,
-          actorId: key.userId,
-        }),
-      )
-      .then(
-        ({ event, created }) => {
-          if (created) {
-            this.broadcaster.broadcast([event]);
-          }
-        },
-        (error: unknown) => {
-          this.logger.error(
-            `${type} 저장 실패: session=${key.sessionId} user=${key.userId}`,
-            error instanceof Error ? error.stack : String(error),
-          );
-        },
-      )
-      .finally(() => {
-        if (this.presenceQueue.get(queueKey) === next) {
-          this.presenceQueue.delete(queueKey);
+    return this.sessionQueue
+      .run(key.sessionId, async () => {
+        const { event, created } = await this.eventService.append(
+          key.sessionId,
+          { type, actorId: key.userId },
+        );
+        if (created) {
+          this.broadcaster.broadcast([event]);
         }
+      })
+      .catch((error: unknown) => {
+        this.logger.error(
+          `${type} 저장 실패: session=${key.sessionId} user=${key.userId}`,
+          error instanceof Error ? error.stack : String(error),
+        );
       });
-    this.presenceQueue.set(queueKey, next);
-    return next;
   }
 }
 

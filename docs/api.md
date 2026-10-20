@@ -325,7 +325,8 @@ REST 응답과 socket 전달에서 같은 형식을 사용한다.
 - REST(생성, 참여, 메시지, 나가기, 종료)와 presence로 새로 저장된 이벤트를 트랜잭션 커밋 후 `session:{id}` room에 전달한다. 형식은 REST 응답의 이벤트와 같다.
 - 중복 요청(같은 `clientEventId`, 다시 참여, 다시 나가기, 다시 종료)과 실패한 요청은 전달하지 않는다.
 - 이미 커밋된 뒤이므로 전달에 실패해도 요청 결과는 바뀌지 않고 서버 로그만 남는다.
-- 서로 다른 요청의 전달 순서가 seq와 어긋날 수 있다. 클라이언트는 seq로 정렬하고, 빠진 seq는 타임라인이나 세션의 `lastSeq`로 확인한다.
+- 같은 세션의 이벤트는 seq 순서로 전달한다. 서버는 세션별 큐에서 "저장 → 커밋 → broadcast"를 한 작업으로 하나씩 실행하고, socket.io는 한 연결 안에서 emit 순서를 지킨다. 따라서 연결이 유지되는 동안 클라이언트는 seq 순서로 받는다.
+- 연결이 끊긴 동안의 이벤트는 다시 보내지 않는다. 클라이언트는 받은 seq가 마지막 seq + 1이 아니거나 재접속하면 누락 조회 API로 빠진 이벤트를 채운다.
 
 **구독 결과**
 - `session:subscribe`, `session:unsubscribe`는 ack로 결과를 돌려준다. 성공은 `{ success: true, data: { sessionId } }`, 실패는 `{ success: false, code, message }`다.
@@ -348,6 +349,7 @@ REST 응답과 socket 전달에서 같은 형식을 사용한다.
 |---|---|---|---|
 | broadcast | socket.io room이 프로세스 메모리에 있다 | 다른 서버에 연결된 구독자는 이벤트를 받지 못한다 | socket.io adapter로 서버 간 emit을 중계한다. MariaDB용 adapter는 없으므로 Redis adapter를 쓴다. |
 | presence 구독 수 | 사용자·세션별 구독 소켓 수를 프로세스 메모리에서 센다 | 다른 서버에 남은 탭을 몰라 OFFLINE을 잘못 저장한다 | Redis 공유 카운터, 또는 adapter의 `fetchSockets()`로 전체 서버의 구독 여부를 확인한다. |
+| broadcast 순서 | 세션별 큐가 프로세스 메모리에 있다 | 같은 세션의 요청이 여러 서버로 나뉘면 서버 간 전달 순서가 seq와 어긋날 수 있다 | 세션 ID로 요청을 한 서버에 모으거나(라우팅), 순서 있는 스트림(Redis Streams 등)으로 전달한다. 클라이언트의 누락 조회로 보완한다. |
 | 시작 시 presence 정리 | 시작할 때 `ONLINE`인 참여자를 모두 `OFFLINE`으로 기록한다 | 한 대만 재시작해도 다른 서버의 정상 연결까지 `OFFLINE`이 된다 | 연결마다 서버 ID를 기록해 자기 서버의 연결만 정리하거나, TTL·하트비트로 응답이 끊긴 연결만 정리한다. |
 
 - Redis 하나를 추가하면 broadcast와 presence 구독 수를 함께 해결할 수 있다.

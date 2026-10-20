@@ -3,6 +3,7 @@ import { EventDto } from '../event/dto/event.dto';
 import { EventType } from '../event/event-type';
 import { EventService } from '../event/event.service';
 import { Broadcaster } from '../realtime/broadcaster';
+import { SessionQueue } from '../realtime/session-queue';
 import { Participant } from './entities/participant.entity';
 import { Session } from './entities/session.entity';
 import { decodeCursor, encodeCursor } from './session-cursor';
@@ -49,7 +50,12 @@ describe('SessionService.create', () => {
         } as Participant,
       ]),
     } as unknown as jest.Mocked<SessionRepository>;
-    service = new SessionService(eventService, repo, noBroadcast());
+    service = new SessionService(
+      eventService,
+      repo,
+      noBroadcast(),
+      new SessionQueue(),
+    );
   });
 
   it('요청자를 생성자로 EventService에 넘긴다', async () => {
@@ -99,6 +105,7 @@ describe('SessionService.join', () => {
       eventService,
       {} as SessionRepository,
       noBroadcast(),
+      new SessionQueue(),
     );
 
     await expect(service.join(SESSION_ID, 'user-b')).resolves.toBe(result);
@@ -122,6 +129,7 @@ describe('SessionService.appendEvent', () => {
       eventService,
       {} as SessionRepository,
       noBroadcast(),
+      new SessionQueue(),
     );
   });
 
@@ -166,6 +174,7 @@ describe('SessionService.end', () => {
       eventService,
       {} as SessionRepository,
       noBroadcast(),
+      new SessionQueue(),
     );
 
     await expect(service.end(SESSION_ID, 'user-a')).resolves.toBe(result);
@@ -207,7 +216,12 @@ describe('SessionService.list', () => {
       findPage: jest.fn().mockResolvedValue([]),
       findParticipantsOf: jest.fn().mockResolvedValue([]),
     } as unknown as jest.Mocked<SessionRepository>;
-    service = new SessionService({} as EventService, repo, noBroadcast());
+    service = new SessionService(
+      {} as EventService,
+      repo,
+      noBroadcast(),
+      new SessionQueue(),
+    );
   });
 
   it('필터를 변환해 limit + 1건을 조회한다', async () => {
@@ -304,7 +318,12 @@ describe('SessionService.requireParticipant', () => {
         leftAt: null,
       }),
     } as unknown as jest.Mocked<SessionRepository>;
-    service = new SessionService({} as EventService, repo, noBroadcast());
+    service = new SessionService(
+      {} as EventService,
+      repo,
+      noBroadcast(),
+      new SessionQueue(),
+    );
   });
 
   it('참여자면 통과한다', async () => {
@@ -352,7 +371,12 @@ describe('SessionService.findOnlineParticipants', () => {
         } as Participant,
       ]),
     } as unknown as jest.Mocked<SessionRepository>;
-    const service = new SessionService({} as EventService, repo, noBroadcast());
+    const service = new SessionService(
+      {} as EventService,
+      repo,
+      noBroadcast(),
+      new SessionQueue(),
+    );
 
     await expect(service.findOnlineParticipants()).resolves.toEqual([
       { sessionId: SESSION_ID, userId: 'user-a' },
@@ -386,7 +410,12 @@ describe('SessionService broadcast', () => {
       }),
       findParticipants: jest.fn().mockResolvedValue([]),
     } as unknown as SessionRepository;
-    service = new SessionService(eventService, repo, broadcaster);
+    service = new SessionService(
+      eventService,
+      repo,
+      broadcaster,
+      new SessionQueue(),
+    );
   });
 
   const calls: [string, (s: SessionService) => Promise<unknown>][] = [
@@ -424,6 +453,43 @@ describe('SessionService broadcast', () => {
     eventService.append.mockRejectedValue(new Error('db down'));
     await expect(call(service)).rejects.toThrow('db down');
     expect(broadcaster.broadcast).not.toHaveBeenCalled();
+  });
+
+  it('같은 세션의 요청은 앞선 요청의 저장과 전달이 끝난 뒤 시작해 seq 순서로 전달한다', async () => {
+    // seq 5 요청이 먼저 들어왔지만 커밋 후 전달 직전에 늦어지는 상황
+    let finishFirst!: () => void;
+    eventService.append
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishFirst = () =>
+              resolve({ event: { ...event, seq: 5 }, created: true });
+          }),
+      )
+      .mockResolvedValueOnce({ event: { ...event, seq: 6 }, created: true });
+
+    const first = service.join(SESSION_ID, 'user-b');
+    const second = service.end(SESSION_ID, 'user-a');
+    await new Promise(setImmediate);
+    // 앞선 요청이 끝나기 전에는 다음 요청을 저장하지 않는다.
+    expect(eventService.append).toHaveBeenCalledTimes(1);
+
+    finishFirst();
+    await Promise.all([first, second]);
+    expect(broadcaster.broadcast.mock.calls.map(([[e]]) => e.seq)).toEqual([
+      5, 6,
+    ]);
+  });
+
+  it('앞선 요청이 실패해도 다음 요청은 처리한다', async () => {
+    eventService.append
+      .mockRejectedValueOnce(new Error('conflict'))
+      .mockResolvedValueOnce({ event, created: true });
+    const first = service.join(SESSION_ID, 'user-c');
+    const second = service.end(SESSION_ID, 'user-a');
+    await expect(first).rejects.toThrow('conflict');
+    await expect(second).resolves.toMatchObject({ created: true });
+    expect(broadcaster.broadcast).toHaveBeenCalledWith([event]);
   });
 
   it('세션 생성의 두 이벤트를 seq 순서로 전달한다', async () => {

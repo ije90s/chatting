@@ -8,6 +8,7 @@ import {
   EventService,
 } from '../event/event.service';
 import { Broadcaster } from '../realtime/broadcaster';
+import { SessionQueue } from '../realtime/session-queue';
 import { AppendEventDto } from './dto/append-event.dto';
 import {
   DEFAULT_LIST_LIMIT,
@@ -25,6 +26,7 @@ export class SessionService {
     private readonly eventService: EventService,
     private readonly sessionRepository: SessionRepository,
     private readonly broadcaster: Broadcaster,
+    private readonly sessionQueue: SessionQueue,
   ) {}
 
   // 저장은 EventService가 하고, 응답은 커밋된 프로젝션에서 만든다.
@@ -34,6 +36,7 @@ export class SessionService {
       actorId: userId,
     });
     // 생성 직후에는 구독자가 있을 수 없지만, 커밋된 모든 이벤트를 같은 경로로 전달한다.
+    // 새 세션 ID는 아직 아무도 모르므로 같은 세션의 다른 쓰기와 겹치지 않아 세션 큐가 필요 없다.
     this.broadcaster.broadcast(events);
     return this.findOne(events[0].sessionId);
   }
@@ -126,15 +129,18 @@ export class SessionService {
   }
 
   // append는 커밋까지 끝난 뒤 돌아온다. 중복 요청(created: false)은 다시 전달하지 않는다.
-  private async appendAndBroadcast(
+  // 세션 큐 안에서 저장과 전달을 함께 해야 broadcast가 seq 순서로 나간다.
+  private appendAndBroadcast(
     sessionId: string,
     input: AppendEventInput,
   ): Promise<AppendEventResult> {
-    const result = await this.eventService.append(sessionId, input);
-    if (result.created) {
-      this.broadcaster.broadcast([result.event]);
-    }
-    return result;
+    return this.sessionQueue.run(sessionId, async () => {
+      const result = await this.eventService.append(sessionId, input);
+      if (result.created) {
+        this.broadcaster.broadcast([result.event]);
+      }
+      return result;
+    });
   }
 
   private async findOne(sessionId: string): Promise<SessionDto> {

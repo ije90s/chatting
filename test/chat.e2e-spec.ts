@@ -8,6 +8,7 @@ import { DataSource } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { AppModule } from '../src/app.module';
 import { ChatGateway } from '../src/realtime/chat.gateway';
+import { SessionQueue } from '../src/realtime/session-queue';
 
 // 실제 서버를 띄워 socket.io 클라이언트로 접속한다.
 describe('ChatGateway (e2e)', () => {
@@ -39,15 +40,13 @@ describe('ChatGateway (e2e)', () => {
     sockets.splice(0).forEach((socket) => socket.disconnect());
     const gateway = app.get(ChatGateway);
     const deadline = Date.now() + 2000;
-    while (
-      gateway['presence']['subscriptions'].size > 0 ||
-      gateway['presenceQueue'].size > 0
-    ) {
+    while (gateway['presence']['subscriptions'].size > 0) {
       if (Date.now() > deadline) {
         throw new Error('presence 처리가 끝나지 않았습니다.');
       }
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
+    await app.get(SessionQueue).idle();
   });
 
   afterAll(() => app.close());
@@ -440,6 +439,23 @@ describe('ChatGateway (e2e)', () => {
       expect(notSubscribed.received).toEqual([]);
       expect(otherSession.received).toEqual([]);
       expect(unsubscribed.received).toEqual([]);
+    });
+
+    it('동시에 들어온 요청도 빠짐없이 seq 순서로 전달된다', async () => {
+      const sessionId = await createWithTwo();
+      const a = await listener('user-a', sessionId);
+      await settle();
+      a.received.length = 0;
+
+      await Promise.all(
+        Array.from({ length: 20 }, (_, i) =>
+          message(sessionId, i % 2 ? 'user-a' : 'user-b').expect(201),
+        ),
+      );
+      await waitFor(() => a.received.length === 20);
+      const seqs = a.received.map((e) => e.seq);
+      const first = seqs[0];
+      expect(seqs).toEqual(Array.from({ length: 20 }, (_, i) => first + i));
     });
 
     it('이벤트는 seq 순서로 전달된다', async () => {

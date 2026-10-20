@@ -6,6 +6,7 @@ import { EventService } from '../event/event.service';
 import { SessionService } from '../session/session.service';
 import { Broadcaster } from './broadcaster';
 import { ChatGateway } from './chat.gateway';
+import { SessionQueue } from './session-queue';
 import type { ChatSocket } from './socket-auth';
 
 const SESSION_ID = '0192a3b4-0000-7000-8000-000000000001';
@@ -15,6 +16,7 @@ describe('ChatGateway 구독', () => {
   let sessionService: jest.Mocked<SessionService>;
   let eventService: jest.Mocked<EventService>;
   let broadcaster: jest.Mocked<Broadcaster>;
+  let queue: SessionQueue;
   let socket: jest.Mocked<ChatSocket>;
 
   beforeEach(() => {
@@ -28,6 +30,7 @@ describe('ChatGateway 구독', () => {
       attach: jest.fn(),
       broadcast: jest.fn(),
     } as unknown as jest.Mocked<Broadcaster>;
+    queue = new SessionQueue();
     socket = {
       id: 'socket-1',
       connected: true,
@@ -36,7 +39,7 @@ describe('ChatGateway 구독', () => {
       leave: jest.fn(),
       emit: jest.fn(),
     } as unknown as jest.Mocked<ChatSocket>;
-    gateway = new ChatGateway(sessionService, eventService, broadcaster);
+    gateway = new ChatGateway(sessionService, eventService, broadcaster, queue);
   });
 
   it('참여자면 session:{id} room에 넣고 성공 ack를 돌려준다', async () => {
@@ -120,6 +123,7 @@ describe('ChatGateway presence', () => {
   let sessionService: jest.Mocked<SessionService>;
   let eventService: jest.Mocked<EventService>;
   let broadcaster: jest.Mocked<Broadcaster>;
+  let queue: SessionQueue;
 
   function socketOf(id: string, userId = 'user-a'): ChatSocket {
     return {
@@ -152,7 +156,8 @@ describe('ChatGateway presence', () => {
       attach: jest.fn(),
       broadcast: jest.fn(),
     } as unknown as jest.Mocked<Broadcaster>;
-    gateway = new ChatGateway(sessionService, eventService, broadcaster);
+    queue = new SessionQueue();
+    gateway = new ChatGateway(sessionService, eventService, broadcaster, queue);
   });
 
   it('첫 구독에서만 PRESENCE_ONLINE을 저장한다(여러 탭)', async () => {
@@ -179,7 +184,7 @@ describe('ChatGateway presence', () => {
     expect(presenceCalls()).toHaveLength(1);
 
     gateway.handleDisconnect(tab2);
-    await gateway['presenceQueue'].get(`${SESSION_ID}:user-a`);
+    await queue.idle();
     expect(presenceCalls()).toEqual([
       [SESSION_ID, EventType.PRESENCE_ONLINE, 'user-a'],
       [SESSION_ID, EventType.PRESENCE_OFFLINE, 'user-a'],
@@ -211,7 +216,7 @@ describe('ChatGateway presence', () => {
     expect(eventService.append).not.toHaveBeenCalled();
   });
 
-  it('같은 사용자·세션의 presence 저장은 호출 순서대로 하나씩 실행한다', async () => {
+  it('같은 세션의 presence 저장은 호출 순서대로 하나씩 실행한다', async () => {
     let finishOnline!: () => void;
     const order: string[] = [];
     eventService.append.mockImplementation((_sessionId, input) => {
@@ -238,7 +243,7 @@ describe('ChatGateway presence', () => {
 
     finishOnline();
     await subscribing;
-    await gateway['presenceQueue'].get(`${SESSION_ID}:user-a`);
+    await queue.idle();
     expect(order).toEqual([
       'start PRESENCE_ONLINE',
       'end PRESENCE_ONLINE',
