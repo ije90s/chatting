@@ -27,7 +27,7 @@
 
 ## 5. session (API)
 
-- [ ] `POST /sessions`: 세션 생성 + 생성자 자동 참여
+- [x] `POST /sessions`: 세션 생성 + 생성자 자동 참여
 - [ ] `POST /sessions/{id}/join`
 - [ ] `POST /sessions/{id}/events`: 메시지, 나가기
 - [ ] `POST /sessions/{id}/end`
